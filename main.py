@@ -5,6 +5,18 @@ from pathlib import Path
 import Render
 import LevelLoader
 
+# TODO currently there is an error with getting off the ladders,
+# The movement spaces around the ladder are interpreted as different height tiles
+# TODO: 
+# add agent
+# finalise action space
+# add clear goal
+# add logging file
+# add proper README
+# create scoring system
+# finalise real level
+# reduce visual clutter further
+# find method of feeding visual data to ai
 
 # File Name
 VOX_FILE = Path("TestBench.vox")
