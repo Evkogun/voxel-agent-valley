@@ -17,6 +17,7 @@ COLOUR_TO_TYPE = {
     (153, 153, 51): "toggleable_hazard",
     (51, 0, 0): "timed_pressure_plate",
     (153, 204, 255): "death_tile",
+    (136, 0, 0): "goal",
 }
 
 

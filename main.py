@@ -4,6 +4,9 @@ from pathlib import Path
 
 import Render
 import LevelLoader
+import Agent
+
+from PIL import Image
 
 # TODO: 
 # add agent
@@ -79,6 +82,10 @@ agent = {
     "respawn_y": 0,
     "respawn_z": 0,
 }
+
+AGENT_STEP_TIME = 1000
+last_agent_step = 0
+goal = "Find the goal at the end of the level"
 
 # Timed hazard state
 toggleable_hazard_safe_until = 0
@@ -516,9 +523,58 @@ def store_original_colours(cubes):
     for cube in cubes:
         cube["original_colour"] = cube["colour"]
 
+def save_screenshot(screen, path="game_view.jpg"):
+    pygame.image.save(screen, path)
+
+def save_small_screenshot(screen, path = "game_view.png"):
+    pygame.image.save(screen, path)
+
+    image = Image.open(path)
+    image = image.resize((300, 300))
+    image.save(path, optimize = True)
+
+# This is in a seperate function in case goal changes or gets more complicated
+def goal_completed(goal_cube):
+    if goal_cube is None: # Safety
+        return False
+    if (agent["x"] == goal_cube["x"] and agent["y"] == goal_cube["y"] and agent["z"] == goal_cube["z"] + 1):
+        return True
+    return False
+
+def get_observations(cube_map, goal_cube):
+
+    senses = {}
+
+    for direction in DIRECTION_TO_VECTOR:
+        senses[direction] = sense_direction(cube_map, direction)
+
+    observation = {
+        "position": {
+            "x": agent["x"],
+            "y": agent["y"],
+            "z": agent["z"],
+        },
+
+        "alive": agent["alive"],
+        "inventory": agent["inventory"],
+        "surroundings": senses,
+        
+        "valid_actions": [
+            "move_north",
+            "move_east",
+            "move_south",
+            "move_west",
+            "take",
+        ],
+        
+        "goal_reached": goal_completed(goal_cube),
+    }
+
+    return observation
 
 # Runs the main pygame window
 def main():
+    global last_agent_step
     # Setup
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -545,6 +601,14 @@ def main():
     agent["z"] = spawn_position[2]
     agent["alive"] = True
 
+    agent_step_count = 0
+    goal_cube = None
+
+
+    for cube in cubes:
+        if cube["type"] == "goal":
+            goal_cube = cube
+
     set_respawn_point(agent["x"], agent["y"], agent["z"])
     print(f"Loaded {len(cubes)} cubes from {VOX_FILE}")
     print_senses(cube_map)
@@ -552,6 +616,30 @@ def main():
     # Game loop
     # Taken from one of my other projects, will likely be refactored as the project develops but it works for now
     while True:
+        current_time = pygame.time.get_ticks()
+
+        if current_time - last_agent_step > AGENT_STEP_TIME:
+            observation = get_observations(cube_map, goal_cube)
+            screenshot_path = None
+
+            if agent_step_count % 5 == 0:
+                save_small_screenshot(screen, "game_view.png")
+                screenshot_path = "game_view.png"
+
+            if observation["goal_reached"]:
+                print("Goal reached!")
+                print(observation)
+                pygame.quit()
+                sys.exit(0)
+            
+            action = Agent.choose_action(observation, goal, screenshot_path)
+
+            print(f"Agent chose : {action}")
+            run_action(action, cubes, cube_map)
+
+            agent_step_count += 1
+            last_agent_step = current_time
+
         update_toggleable_hazard_colours(cubes)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
