@@ -546,6 +546,36 @@ def goal_completed(goal_cube):
         return True
     return False
 
+def distance_to_goal(goal_cube):
+    if goal_cube is None:
+        return None # Safety
+
+    goal_x = goal_cube["x"]
+    goal_y = goal_cube["y"]
+    goal_z = goal_cube["z"] + 1
+    # Giving the agent absolute distance should help it out
+    return abs(agent["x"] - goal_x) + abs(agent["y"] - goal_y) + abs(agent["z"] - goal_z)
+
+def direction_to_goal(goal_cube):
+    if goal_cube is None:
+        return None
+
+    dx = goal_cube["x"] - agent["x"]
+    dy = goal_cube["y"] - agent["y"]
+    dz = (goal_cube["z"] + 1) - agent["z"]
+
+    return {
+        "x_difference": dx,
+        "y_difference": dy,
+        "z_difference": dz,
+
+        "general_direction": {
+            "east_west": "east" if dx > 0 else "west" if dx < 0 else "same",
+            "north_south": "south" if dy > 0 else "north" if dy < 0 else "same",
+            "vertical": "up" if dz > 0 else "down" if dz < 0 else "same",
+        }
+    }
+
 def get_observations(cube_map, goal_cube):
 
     senses = {}
@@ -564,6 +594,17 @@ def get_observations(cube_map, goal_cube):
         "inventory": agent["inventory"],
         "surroundings": senses,
         
+        "goal": {
+            "position": None if goal_cube is None else {
+                "x": goal_cube["x"],
+                "y": goal_cube["y"],
+                "z": goal_cube["z"] + 1,
+            },
+            
+            "distance": distance_to_goal(goal_cube),
+            "direction": direction_to_goal(goal_cube),
+        },
+
         "valid_actions": [
             "move_north",
             "move_east",
