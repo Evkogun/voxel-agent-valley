@@ -511,7 +511,7 @@ def draw_scene(screen, cubes):
 
 
 # Runs an action based on the input string
-def run_action(action, cubes, cube_map):
+def run_action(action, cubes, cube_map, goal_cube=None):
 
     if action in MOVE_ACTION_TO_DIRECTION:
         move_in_direction(MOVE_ACTION_TO_DIRECTION[action], cubes, cube_map)
@@ -519,8 +519,14 @@ def run_action(action, cubes, cube_map):
         take_around_current_tile(cubes, cube_map)
     else:
         print(f"Unknown action: {action}")
+
     print_senses(cube_map)
 
+    if goal_cube is not None:
+        observation = get_observations(cube_map, goal_cube)
+        print(f"Goal distance: {observation['goal']['distance']}, direction: {observation['goal']['direction']['general_direction']}")
+    
+    print(f"Goal cube found: {goal_cube}")
 
 # Adds original colours to cubes so toggleable hazards can reset
 # This may be later changed to customise level look without changing the underlying logic colours
@@ -600,7 +606,7 @@ def get_observations(cube_map, goal_cube):
                 "y": goal_cube["y"],
                 "z": goal_cube["z"] + 1,
             },
-            
+
             "distance": distance_to_goal(goal_cube),
             "direction": direction_to_goal(goal_cube),
         },
@@ -670,7 +676,7 @@ def main():
     # Taken from one of my other projects, will likely be refactored as the project develops but it works for now
     while True:
         current_time = pygame.time.get_ticks()
-
+        
         if args.ai and current_time - last_agent_step > AGENT_STEP_TIME:
             observation = get_observations(cube_map, goal_cube)
             screenshot_path = None
@@ -688,7 +694,7 @@ def main():
             action = Agent.choose_action(observation, goal, screenshot_path)
 
             print(f"Agent chose : {action}")
-            run_action(action, cubes, cube_map)
+            run_action(action, cubes, cube_map, goal_cube)
 
             agent_step_count += 1
             last_agent_step = current_time
@@ -705,16 +711,16 @@ def main():
                     sys.exit()
 
                 if event.key == pygame.K_w:
-                    run_action("move_north", cubes, cube_map)
+                    run_action("move_north", cubes, cube_map, goal_cube)
 
                 if event.key == pygame.K_a:
-                    run_action("move_west", cubes, cube_map)
+                    run_action("move_west", cubes, cube_map, goal_cube)
 
                 if event.key == pygame.K_s:
-                    run_action("move_south", cubes, cube_map)
+                    run_action("move_south", cubes, cube_map, goal_cube)
 
                 if event.key == pygame.K_d:
-                    run_action("move_east", cubes, cube_map)
+                    run_action("move_east", cubes, cube_map, goal_cube)
 
                 if event.key == pygame.K_e:
                     run_action("take", cubes, cube_map)

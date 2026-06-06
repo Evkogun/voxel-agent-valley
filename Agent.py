@@ -33,6 +33,7 @@ def choose_action(observation, goal, screenshot_path=None):
         - The goal is the dark green cube
         - Prefer actions that reduce distance to goal
         - Use goal.direction to choose the general direction of travel
+        - If there is no immediate path that increases goal you may travel in a different direction
         - Try to find a path through the walkable tiles such as white cubes
         - If direction is blocked, choose another walkable direction to explore
         
