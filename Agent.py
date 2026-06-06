@@ -46,7 +46,7 @@ def choose_action(observation, goal, screenshot_path=None):
         )
 
     response = client.responses.create(
-        model="gpt-4.1-mini",
+        model="gpt-4.1-nano",
         input=[
             {
                 "role": "user",

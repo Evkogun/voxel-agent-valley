@@ -4,7 +4,7 @@ from pathlib import Path
 
 import Render
 import LevelLoader
-import Agent
+import argparse
 
 from PIL import Image
 
@@ -89,6 +89,11 @@ goal = "Find the goal at the end of the level"
 
 # Timed hazard state
 toggleable_hazard_safe_until = 0
+
+def get_launch_options():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ai", action="store_true", help="Run with OpenAI agent")
+    return parser.parse_args()
 
 # Gets the highest cube at a x y position
 # Used for finding the tile the agent is trying to move to and for top of ladder
@@ -575,7 +580,13 @@ def get_observations(cube_map, goal_cube):
 # Runs the main pygame window
 def main():
     global last_agent_step
-    # Setup
+    # Setup and ai flag
+    args = get_launch_options()
+    Agent = None
+    if args.ai:
+        import Agent
+
+
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("LLM Valley")
@@ -595,6 +606,7 @@ def main():
         print("No spawn point found")
         pygame.quit()
         sys.exit(1)
+
 
     agent["x"] = spawn_position[0]
     agent["y"] = spawn_position[1]
@@ -618,7 +630,7 @@ def main():
     while True:
         current_time = pygame.time.get_ticks()
 
-        if current_time - last_agent_step > AGENT_STEP_TIME:
+        if args.ai and current_time - last_agent_step > AGENT_STEP_TIME:
             observation = get_observations(cube_map, goal_cube)
             screenshot_path = None
 
