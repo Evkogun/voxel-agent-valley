@@ -90,7 +90,7 @@ def get_top_cube_at_xy(cube_map, x, y, top_count=None):
         cube_x = cube_position[0]
         cube_y = cube_position[1]
 
-        if cube_x == x and cube_y == y: matching_cubes.append(cube_map[cube_position])
+        if cube_x == x and cube_y == y and cube_map[cube_position]["type"] != "death_tile": matching_cubes.append(cube_map[cube_position])
 
     matching_cubes.sort(
         key=lambda cube: cube["z"],
@@ -98,9 +98,18 @@ def get_top_cube_at_xy(cube_map, x, y, top_count=None):
     )
 
     if top_count is None:
-        if len(matching_cubes) == 0:
-            return None
-        return matching_cubes[0]
+        for i, cube in enumerate(matching_cubes):
+            current_cube = matching_cubes[i]
+            if i + 1 < len(matching_cubes):
+                next_cube = matching_cubes[i + 1]
+            else:
+                next_cube = None
+            
+            if current_cube["z"] == agent["z"] - 1 and next_cube["z"] != agent["z"]:
+                return cube
+            elif next_cube["z"] != agent["z"]:
+                return next_cube
+        return None
     return matching_cubes[:top_count]
 
 # Removes a cube from both the list and the map
