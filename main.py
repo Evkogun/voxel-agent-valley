@@ -5,8 +5,6 @@ from pathlib import Path
 import Render
 import LevelLoader
 
-# TODO currently there is an error with getting off the ladders,
-# The movement spaces around the ladder are interpreted as different height tiles
 # TODO: 
 # add agent
 # finalise action space
@@ -17,6 +15,15 @@ import LevelLoader
 # finalise real level
 # reduce visual clutter further
 # find method of feeding visual data to ai
+# Add discord between visual and sensory input, make 1 more accurate than other at times
+
+# TODO Planning to expand this to potentially include:
+#  - Height difference
+#  - Move Possibility
+#  - Wider radius/reach or line of sight sensing
+#  - Objectives
+#  - Fall consequences
+
 
 # File Name
 VOX_FILE = Path("TestBench.vox")
@@ -52,8 +59,6 @@ WALKABLE_TYPES = {
     "stairs",
     "ladder",
     "ledge",
-    "key1",
-    "key2",
     "timed_pressure_plate",
 }
 
@@ -81,7 +86,7 @@ toggleable_hazard_safe_until = 0
 # Gets the highest cube at a x y position
 # Used for finding the tile the agent is trying to move to and for top of ladder
 # Potentially will be used to implement door key sensing logic
-def get_top_cube_at_xy(cube_map, x, y, top_count=None):
+def get_cube_at_xy(cube_map, x, y, top_count=None):
 
     matching_cubes = []
     # Horrifically inefficient, levels are small but if given time this will be optimised
@@ -90,21 +95,26 @@ def get_top_cube_at_xy(cube_map, x, y, top_count=None):
         cube_x = cube_position[0]
         cube_y = cube_position[1]
 
-        if cube_x == x and cube_y == y and cube_map[cube_position]["type"] != "death_tile": matching_cubes.append(cube_map[cube_position])
+        if cube_x == x and cube_y == y: matching_cubes.append(cube_map[cube_position])
 
     matching_cubes.sort(
         key=lambda cube: cube["z"],
         reverse=True
     )
 
+    # Gets cubes at same level or 1 below agent
     if top_count is None:
         for cube in matching_cubes:
             if cube["z"] == agent["z"]:
+                if matching_cubes and matching_cubes[0]["type"] == "ladder" and cube["type"] == "ladder":
+                    return matching_cubes[0] # Finds tops of ladders, check is in edge case of scanning a tile below a ladder
                 return cube
 
         for cube in matching_cubes:
             if cube["z"] == agent["z"] - 1:
                 return cube
+            if cube["z"] == agent["z"] - 2:
+                return cube # for stairs going downward
         return None
     return matching_cubes[:top_count]
 
@@ -117,19 +127,6 @@ def remove_cube(cubes, cube_map, cube):
     cube_position = (cube["x"], cube["y"], cube["z"])
 
     if cube_position in cube_map: del cube_map[cube_position]
-
-
-# Checks if there are key objects above the door
-def keys_still_exist(cubes_to_check):
-    # In case of unlocked door
-    if cubes_to_check is None: return False
-    
-    if isinstance(cubes_to_check, dict): cubes_to_check = [cubes_to_check]
-
-    for cube in cubes_to_check:
-        if cube["type"] in KEY_TYPES:
-            return True
-    return False
 
 # Checks if toggleable hazards are currently safe against a global variable
 # Not safe until pressure plate funciton triggered
@@ -145,7 +142,7 @@ def update_toggleable_hazard_colours(cubes):
 
     for cube in cubes:
         if cube["type"] == "toggleable_hazard":
-            if safe: cube["colour"] = (238, 238, 238)
+            if safe: cube["colour"] = (195, 195, 144) # To distiguish it from other walkable tiles
             else: cube["colour"] = cube["original_colour"]
 
 
@@ -209,19 +206,6 @@ def can_enter_cube(cube):
     if cube["type"] in WALKABLE_TYPES:
         return True
     return False
-
-
-# Checks if the agent is trying to move between white cubes at different heights
-def is_invalid_path_height_change(current_tile, target_cube):
-
-    if current_tile is None or target_cube is None: return False
-
-    return (
-        current_tile["type"] == "path"
-        and target_cube["type"] == "path"
-        and target_cube["z"] != current_tile["z"]
-    )
-
 
 # At target, find the highest cube below agent
 # Used in ledge logic
@@ -291,16 +275,21 @@ def handle_door(cubes, cube_map, door_cube):
     door_x = door_cube["x"]
     door_y = door_cube["y"]
 
-    door_stack = get_top_cube_at_xy(cube_map, door_x, door_y, top_count=5) # 5 is deliberately high to allow more keys
-    # Old logic checked for keys in level, updated checks above the door to allow for multiple doors
-    if keys_still_exist(door_stack):
-        print("Door blocked. You do not have all the keys")
-        return
+    door_stack = get_cube_at_xy(cube_map, door_x, door_y, top_count=5)
+
+    for cube in door_stack:
+        if cube["type"] in KEY_TYPES:
+            if cube["type"] not in agent["inventory"]:
+                print("Door blocked. You do not have all the keys")
+                return
 
     print("Door opened")
 
-    remove_cube(cubes, cube_map, door_cube)
+    for cube in door_stack:
+        if cube["type"] in KEY_TYPES:
+            remove_cube(cubes, cube_map, cube)
 
+    remove_cube(cubes, cube_map, door_cube)
 
 # Moves the agent in an absolute direction
 # Initially used turn system but this was clunky for testing
@@ -312,7 +301,7 @@ def move_in_direction(direction, cubes, cube_map):
     target_y = agent["y"] + dy
 
     current_tile = cube_map.get((agent["x"], agent["y"], agent["z"] - 1))
-    target_cube = get_top_cube_at_xy(cube_map, target_x, target_y)
+    target_cube = get_cube_at_xy(cube_map, target_x, target_y)
 
     # Moving into empty space
     # Trigger fall logic, if not death
@@ -331,7 +320,7 @@ def move_in_direction(direction, cubes, cube_map):
     # Ladder logic
     if target_cube["type"] == "ladder":
 
-        ladder_top = get_top_cube_at_xy(cube_map, target_x, target_y)
+        ladder_top = get_cube_at_xy(cube_map, target_x, target_y)
 
         if ladder_top is None:
             print("Move blocked. Ladder finding exception")
@@ -382,33 +371,19 @@ def move_in_direction(direction, cubes, cube_map):
 
 
 # Takes the object on the current tile if it can be taken
-def take_current_tile(cubes, cube_map):
+def take_around_current_tile(cubes, cube_map):
 
-    current_tile = cube_map.get((agent["x"], agent["y"], agent["z"] - 1))
+    for dx, dy in DIRECTION_TO_VECTOR.values():
+        current_tile = cube_map.get((agent["x"] + dx, agent["y"] + dy, agent["z"]))
+        if current_tile is not None and current_tile["type"] in KEY_TYPES:
+            # Agent inventory is just a list of strings for now
+            agent["inventory"].append(current_tile["type"])
+            print(f"Took {current_tile['type']}")
+            remove_cube(cubes, cube_map, current_tile)
+            return
 
-    if current_tile is None:
-        print("There is nothing to take")
-        return
+    print("There is nothing to take")
 
-    if current_tile["type"] in KEY_TYPES:
-        # Agent inventory is just a list of strings for now
-        agent["inventory"].append(current_tile["type"])
-        print(f"Took {current_tile['type']}")
-        remove_cube(cubes, cube_map, current_tile)
-
-    else: # Safety
-        print(f"Cannot take {current_tile['type']}")
-
-
-# Gets the type of the object one tile in a given direction
-# Since this is called in 4 directions there is no need to make it more complex
-# TODO Planning to expand this to potentially include:
-#  - Height difference
-#  - Danger state of toggleable hazards
-#  - Move Possibility
-#  - Wider radius/reach or line of sight sensing
-#  - Objectives
-#  - Fall consequences
 
 def sense_direction(cube_map, direction):
 
@@ -417,7 +392,7 @@ def sense_direction(cube_map, direction):
     target_x = agent["x"] + dx
     target_y = agent["y"] + dy
 
-    target_cube = get_top_cube_at_xy(cube_map, target_x, target_y)
+    target_cube = get_cube_at_xy(cube_map, target_x, target_y)
 
     if target_cube is None:
         return "empty"
@@ -529,7 +504,7 @@ def run_action(action, cubes, cube_map):
     if action in MOVE_ACTION_TO_DIRECTION:
         move_in_direction(MOVE_ACTION_TO_DIRECTION[action], cubes, cube_map)
     elif action == "take":
-        take_current_tile(cubes, cube_map)
+        take_around_current_tile(cubes, cube_map)
     else:
         print(f"Unknown action: {action}")
     print_senses(cube_map)
