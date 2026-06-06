@@ -98,17 +98,13 @@ def get_top_cube_at_xy(cube_map, x, y, top_count=None):
     )
 
     if top_count is None:
-        for i, cube in enumerate(matching_cubes):
-            current_cube = matching_cubes[i]
-            if i + 1 < len(matching_cubes):
-                next_cube = matching_cubes[i + 1]
-            else:
-                next_cube = None
-            
-            if current_cube["z"] == agent["z"] - 1 and next_cube["z"] != agent["z"]:
+        for cube in matching_cubes:
+            if cube["z"] == agent["z"]:
                 return cube
-            elif next_cube["z"] != agent["z"]:
-                return next_cube
+
+        for cube in matching_cubes:
+            if cube["z"] == agent["z"] - 1:
+                return cube
         return None
     return matching_cubes[:top_count]
 
