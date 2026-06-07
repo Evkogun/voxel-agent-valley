@@ -6,8 +6,6 @@ import Render
 import LevelLoader
 import argparse
 
-from PIL import Image
-
 # TODO: 
 # add agent
 # finalise action space
@@ -30,7 +28,7 @@ from PIL import Image
 
 # File Name
 VOX_FILE = Path("TestBench.vox")
-LEVEL_SIZE = 32 # The expected size of the level in cubes. Used for scaling the render and centering the camera
+LEVEL_SIZE = 40 # The expected size of the level in cubes. Used for scaling the render and centering the camera
 
 # Generic init values
 WIDTH = 600
@@ -54,6 +52,13 @@ MOVE_ACTION_TO_DIRECTION = {
     "move_east": "east",
 }
 
+BRANCH_SCAN_LIMIT = 30
+
+SPECIAL_CONTINUATION_TYPES = {
+    "stairs",
+    "ladder",
+}
+
 # Tiles the agent can normally stand on
 WALKABLE_TYPES = {
     "spawn",
@@ -72,17 +77,40 @@ KEY_TYPES = {
     "key2",
 }
 
+TYPE_TO_SYMBOL = {
+    "spawn": "S",
+    "checkpoint": "C",
+    "path": ".",
+    "stairs": "^",
+    "ladder": "L",
+    "key1": "1",
+    "key2": "2",
+    "door": "D",
+    "ledge": "_",
+    "hazard": "H",
+    "toggleable_hazard": "T",
+    "timed_pressure_plate": "P",
+    "death_tile": "~",
+    "goal": "G",
+    "empty": "#",
+    "unknown": "?",
+    "agent": "A",
+}
+
 AGENT_STEP_TIME = 1000
+AGENT_VISION_RADIUS = 12
+AGENT_Z_VISION = 0
+AGENT_MAX_Z = 8
 
 # List of checkpoints as well as the goal for tracking
 CHECKPOINT_LOCATIONS = [
-[-15, -7, 1],
-[3, -7, 1],
-[22, -7, 1],
-[6, 3, 1],
-[-2, 1, 1],
+    [-19, -11, 1],
+    [-1, -11, 1],
+    [18, -11, 1],
+    [2, -1, 1],
+    [-6, -3, 1],
 
-[-15, 3, 1], # goal
+    [-19, -1, 1], # goal
 ]
 
 checkpoint_tracking_iterator = 0
@@ -95,6 +123,8 @@ agent = {
     "inventory": [],
     "alive": True,
 }
+
+agent_vision = []
 
 last_agent_step = 0
 goal = "Find the goal at the end of the level"
@@ -441,6 +471,185 @@ def sense_direction(cube_map, direction):
     return target_cube["type"]
 
 
+def get_scan_tile_type(cube):
+
+    if cube is None:
+        return "empty"
+
+    if cube["type"] == "toggleable_hazard":
+        if toggleable_hazards_are_safe():
+            return "toggleable_hazard_safe"
+        return "toggleable_hazard_active"
+
+    return cube["type"]
+
+
+def get_safe_directions_from_position(cube_map, x, y):
+
+    safe_directions = []
+
+    for direction, delta in DIRECTION_TO_VECTOR.items():
+
+        dx, dy = delta
+
+        target_x = x + dx
+        target_y = y + dy
+
+        target_cube = get_cube_at_xy(cube_map, target_x, target_y)
+        target_type = get_scan_tile_type(target_cube)
+
+        if target_cube is not None and can_enter_cube(target_cube):
+            safe_directions.append({
+                "direction": direction,
+                "tile": target_type,
+                "position": {
+                    "x": target_x,
+                    "y": target_y,
+                    "z": target_cube["z"] + 1,
+                },
+            })
+
+    return safe_directions
+
+
+def scan_branch(cube_map, start_direction):
+
+    dx, dy = DIRECTION_TO_VECTOR[start_direction]
+
+    current_x = agent["x"]
+    current_y = agent["y"]
+    previous_x = agent["x"]
+    previous_y = agent["y"]
+    path = []
+
+    for step in range(1, BRANCH_SCAN_LIMIT + 1):
+
+        current_x += dx
+        current_y += dy
+        current_cube = get_cube_at_xy(cube_map, current_x, current_y)
+        current_type = get_scan_tile_type(current_cube)
+
+        path.append({"x": current_x, "y": current_y, "tile": current_type})
+
+        if current_cube is None:
+            return {
+                "start_direction": start_direction,
+                "result": "empty",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches empty space",
+            }
+
+        if not can_enter_cube(current_cube):
+            return {
+                "start_direction": start_direction,
+                "result": "blocked",
+                "blocked_by": current_type,
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": f"branch is blocked by {current_type}",
+            }
+
+        if current_type == "checkpoint":
+            return {
+                "start_direction": start_direction,
+                "result": "checkpoint",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches a checkpoint",
+            }
+
+        if current_type == "goal":
+            return {
+                "start_direction": start_direction,
+                "result": "goal",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches the goal",
+            }
+
+        if current_type in SPECIAL_CONTINUATION_TYPES:
+            return {
+                "start_direction": start_direction,
+                "result": "special_continuation",
+                "special_tile": current_type,
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": f"branch reaches {current_type}, which is a valid continuation",
+            }
+
+        safe_directions = get_safe_directions_from_position(cube_map, current_x, current_y)
+        onward_directions = []
+
+        for safe_direction in safe_directions:
+            target_position = safe_direction["position"]
+
+            if target_position["x"] == previous_x and target_position["y"] == previous_y: continue
+
+            onward_directions.append(safe_direction)
+
+        if len(onward_directions) == 0:
+            return {
+                "start_direction": start_direction,
+                "result": "dead_end",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch has no safe onward moves",
+            }
+
+        if len(onward_directions) >= 2:
+            return {
+                "start_direction": start_direction,
+                "result": "junction",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "onward_directions": onward_directions,
+                "path_preview": path,
+                "reason": "branch reaches another junction",
+            }
+
+        next_direction = onward_directions[0]["direction"]
+        dx, dy = DIRECTION_TO_VECTOR[next_direction]
+
+        previous_x = current_x
+        previous_y = current_y
+
+    return {
+        "start_direction": start_direction,
+        "result": "scan_limit_reached",
+        "steps": BRANCH_SCAN_LIMIT,
+        "end_position": {"x": current_x, "y": current_y},
+        "path_preview": path,
+        "reason": "branch continued beyond scan limit",
+    }
+
+
+def get_branch_analysis(cube_map):
+
+    branch_analysis = {}
+
+    for action, direction in MOVE_ACTION_TO_DIRECTION.items():
+        tile_type = sense_direction(cube_map, direction)
+        if tile_type not in WALKABLE_TYPES and tile_type != "toggleable_hazard_safe":
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "unsafe",
+                "tile": tile_type,
+                "reason": f"cannot start branch because {direction} is {tile_type}",
+            }
+            continue
+
+        branch_analysis[action] = scan_branch(cube_map, direction)
+
+    return branch_analysis
+
+
 # Prints the object type one tile in each direction
 # TODO expand
 def print_senses(cube_map):
@@ -476,13 +685,45 @@ def get_draw_depth(item):
     # This is to prevent cubes visually overlapping in the wrong order when they are at the same x + y but different heights
     return item["x"] + item["y"] + item["z"]
 
+def create_empty_agent_vision():
+    return [[[
+        "#" for z in range(AGENT_MAX_Z)]
+        for y in range(LEVEL_SIZE)]
+        for x in range(LEVEL_SIZE)
+    ]
+
+
+def get_agent_text_vision():
+
+    offset = LEVEL_SIZE // 2
+    vision_layers = []
+
+    min_z = max(0, agent["z"] - 1 - AGENT_Z_VISION)
+    max_z = min(AGENT_MAX_Z - 1, agent["z"] - 1 + AGENT_Z_VISION)
+
+    for z in range(max_z, min_z - 1, -1):
+        vision_lines = []
+        for y in range(agent["y"] + offset - AGENT_VISION_RADIUS, agent["y"] + offset + AGENT_VISION_RADIUS + 1):
+            row = ""
+            for x in range(agent["x"] + offset - AGENT_VISION_RADIUS, agent["x"] + offset + AGENT_VISION_RADIUS + 1):
+                if x < 0 or x >= LEVEL_SIZE or y < 0 or y >= LEVEL_SIZE:
+                    row += "#"
+                else:
+                    row += agent_vision[x][y][z]
+            vision_lines.append(row)
+        vision_layers.append({"z": z, "map": vision_lines})
+
+    return vision_layers
 
 # Draws all cubes and the agent in depth order
 # Most of this was moved to the Render module but the draw_scene function is still responsible for sorting everything in the correct order
 def draw_scene(screen, cubes):
+    global agent_vision
+    agent_vision = create_empty_agent_vision()
 
     origin_x, origin_y = get_camera_origin()
     render_items = []
+    offset = LEVEL_SIZE // 2
 
     # Adds all cubes to the render list
     for cube in cubes:
@@ -546,12 +787,11 @@ def run_action(action, cubes, cube_map, goal_cube=None):
         print(f"Unknown action: {action}")
 
     print_senses(cube_map)
+    print_branch_analysis(cube_map)
 
     if goal_cube is not None:
         observation = get_observations(cube_map, goal_cube)
         print(f"Goal distance: {observation['goal']['distance']}, direction: {observation['goal']['direction']['general_direction']}")
-    
-    print(f"Goal cube found: {goal_cube}")
 
     if goal_completed(goal_cube):
         print("Goal reached!")
@@ -564,16 +804,6 @@ def run_action(action, cubes, cube_map, goal_cube=None):
 def store_original_colours(cubes):
     for cube in cubes:
         cube["original_colour"] = cube["colour"]
-
-def save_screenshot(screen, path="game_view.jpg"):
-    pygame.image.save(screen, path)
-
-def save_small_screenshot(screen, path = "game_view.png"):
-    pygame.image.save(screen, path)
-
-    image = Image.open(path)
-    image = image.resize((300, 300))
-    image.save(path, optimize = True)
 
 # This is in a seperate function in case goal changes or gets more complicated
 def goal_completed(goal_cube):
@@ -626,7 +856,33 @@ def get_observations(cube_map, goal_cube):
         "alive": agent["alive"],
         "inventory": agent["inventory"],
         "surroundings": senses,
-        
+        "branch_analysis": get_branch_analysis(cube_map),
+
+        "text_vision": {
+            "vision_radius": AGENT_VISION_RADIUS,
+            "z_vision": AGENT_Z_VISION,
+            "legend": {
+                "A": "agent",
+                "S": "spawn",
+                "C": "checkpoint",
+                ".": "path",
+                "^": "stairs",
+                "L": "ladder",
+                "1": "key1",
+                "2": "key2",
+                "D": "door",
+                "_": "ledge",
+                "H": "hazard",
+                "T": "toggleable hazard",
+                "P": "timed pressure plate",
+                "~": "death tile",
+                "G": "goal",
+                "#": "empty or outside vision",
+                "?": "unknown",
+            },
+            "layers": get_agent_text_vision(),
+        },
+
         "goal": {
             "position": None if goal_cube is None else {
                 "x": CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][0],
@@ -651,9 +907,55 @@ def get_observations(cube_map, goal_cube):
 
     return observation
 
+def update_agent_vision(cubes):
+    global agent_vision
+
+    agent_vision = create_empty_agent_vision()
+    offset = LEVEL_SIZE // 2
+
+    for cube in cubes:
+        x = cube["x"] + offset
+        y = cube["y"] + offset
+        z = cube["z"]
+
+        if 0 <= x < LEVEL_SIZE and 0 <= y < LEVEL_SIZE and 0 <= z < AGENT_MAX_Z:
+            agent_vision[x][y][z] = TYPE_TO_SYMBOL.get(cube["type"], "?")
+
+    if 0 <= agent["x"] + offset < LEVEL_SIZE and 0 <= agent["y"] + offset < LEVEL_SIZE and 0 <= agent["z"] - 1 < AGENT_MAX_Z:
+        agent_vision[agent["x"] + offset][agent["y"] + offset][agent["z"] - 1] = "A"
+
+def print_agent_text_vision(cubes):
+    update_agent_vision(cubes)
+    vision = get_agent_text_vision()
+
+    print("")
+    print("Agent text vision")
+    print(f"Position: ({agent['x']}, {agent['y']}, {agent['z']})")
+    print("")
+
+    for layer in vision:
+        print(f"z = {layer['z']}")
+        for row in layer["map"]:
+            print(row)
+        print("")
+
+def print_branch_analysis(cube_map):
+    print("Branch analysis")
+
+    branch_analysis = get_branch_analysis(cube_map)
+
+    for action, analysis in branch_analysis.items():
+        result = analysis.get("result")
+        steps = analysis.get("steps", "-")
+        reason = analysis.get("reason", "")
+
+        print(f"{action}: {result}, steps: {steps}, {reason}")
+    print("")
+
 # Runs the main pygame window
 def main():
-    global last_agent_step, checkpoint_location
+    global last_agent_step, checkpoint_location, agent_vision
+    agent_vision = create_empty_agent_vision()
     # Setup and ai flag
     args = get_launch_options()
     Agent = None
@@ -705,12 +1007,9 @@ def main():
         current_time = pygame.time.get_ticks()
         
         if args.ai and current_time - last_agent_step > AGENT_STEP_TIME:
+            update_agent_vision(cubes)
             observation = get_observations(cube_map, goal_cube)
             screenshot_path = None
-
-            if agent_step_count % 5 == 0:
-                save_small_screenshot(screen, "game_view.png")
-                screenshot_path = "game_view.png"
 
             if observation["goal_reached"]:
                 print("Goal reached!")
@@ -751,6 +1050,9 @@ def main():
 
                 if event.key == pygame.K_e:
                     run_action("take", cubes, cube_map)
+
+                if event.key == pygame.K_m:
+                    print_agent_text_vision(cubes)
 
         screen.fill(Render.BACKGROUND)
         draw_scene(screen, cubes)
