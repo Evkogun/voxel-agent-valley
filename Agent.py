@@ -30,13 +30,15 @@ def choose_action(observation, goal, screenshot_path=None):
     move_north, move_east, move_south, move_west, take.
     
     Rules:
-        - The goal is the dark green cube
-        - Prefer actions that reduce distance to goal
-        - Use goal.direction to choose the general direction of travel
-        - If there is no immediate path that increases goal you may travel in a different direction
-        - Try to find a path through the walkable tiles such as white cubes
-        - If direction is blocked, choose another walkable direction to explore
-        
+        - Your position in the image is represented by the red sphere
+        - You should prioritise reaching the closest checkpoint tile
+        - The final goal is the dark green cube
+        - White path tiles are the main route. Prefer continuing along connected path tiles
+        - The goal direction is only a rough hint, not a command
+        - If the direct goal direction is blocked or unsafe, follow the available white path instead
+        - It is allowed to temporarily increase distance to the goal if that keeps you on the white path
+        - Do not repeat a blocked action
+
     Tile meanings:
         - path: normal walkable white cube
         - checkpoint: green walkable cube

@@ -63,6 +63,7 @@ WALKABLE_TYPES = {
     "ladder",
     "ledge",
     "timed_pressure_plate",
+    "goal",
 }
 
 # Tiles that can be picked up
@@ -71,6 +72,21 @@ KEY_TYPES = {
     "key2",
 }
 
+AGENT_STEP_TIME = 1000
+
+# List of checkpoints as well as the goal for tracking
+CHECKPOINT_LOCATIONS = [
+[-15, -7, 1],
+[3, -7, 1],
+[22, -7, 1],
+[6, 3, 1],
+[-2, 1, 1],
+
+[-15, 3, 1], # goal
+]
+
+checkpoint_tracking_iterator = 0
+
 # Agent state
 agent = {
     "x": 0,
@@ -78,17 +94,15 @@ agent = {
     "z": 0,
     "inventory": [],
     "alive": True,
-    "respawn_x": 0,
-    "respawn_y": 0,
-    "respawn_z": 0,
 }
 
-AGENT_STEP_TIME = 1000
 last_agent_step = 0
 goal = "Find the goal at the end of the level"
 
 # Timed hazard state
 toggleable_hazard_safe_until = 0
+
+checkpoint_location = None
 
 def get_launch_options():
     parser = argparse.ArgumentParser()
@@ -173,18 +187,19 @@ def activate_pressure_plate(cubes):
 # Sets the respawn point
 # Looks neater this way, may be used more in the future for multi level design
 def set_respawn_point(x, y, z):
-
-    agent["respawn_x"] = x
-    agent["respawn_y"] = y
-    agent["respawn_z"] = z
+    global checkpoint_location
+    checkpoint_location[0] = x
+    checkpoint_location[1] = y
+    checkpoint_location[2] = z
 
 
 # Respawns the agent at the most recent checkpoint or spawn point
 def respawn_agent():
+    global checkpoint_location
 
-    agent["x"] = agent["respawn_x"]
-    agent["y"] = agent["respawn_y"]
-    agent["z"] = agent["respawn_z"]
+    agent["x"] = checkpoint_location[0]
+    agent["y"] = checkpoint_location[1]
+    agent["z"] = checkpoint_location[2]
     agent["alive"] = True
 
     print(f"Respawned at ({agent['x']}, {agent['y']}, {agent['z']})")
@@ -245,11 +260,6 @@ def move_agent_to_cube(cube):
     agent["z"] = cube["z"] + 1 # Agents z has to be adjusted as it defaults to a height 1 off where it should
 
     print(f"Moved onto {cube['type']}")
-
-    if cube["type"] == "checkpoint":
-        set_respawn_point(agent["x"], agent["y"], agent["z"])
-        print("Checkpoint updated")
-
 
 # Moves the agent forward off a ledge or ladder
 def fall_from_ledge(cube_map, target_x, target_y):
@@ -374,9 +384,24 @@ def move_in_direction(direction, cubes, cube_map):
         activate_pressure_plate(cubes)
         return
 
-    # Normal movement logic
+    # Normal movement and checkpoint update logic
     if target_cube["type"] in WALKABLE_TYPES:
         move_agent_to_cube(target_cube)
+
+        if target_cube["type"] == "checkpoint":
+            global checkpoint_location, checkpoint_tracking_iterator
+
+            old_checkpoint_cube = get_cube_at_xy(cube_map, checkpoint_location[0], checkpoint_location[1])
+            old_checkpoint_cube["colour"] = (238, 238, 238)
+            old_checkpoint_cube["type"] = "path"
+
+            set_respawn_point(agent["x"], agent["y"], agent["z"])
+            target_cube["colour"] = (238, 0, 0)
+            target_cube["type"] = "spawn"
+
+            checkpoint_tracking_iterator += 1
+
+            print("Checkpoint updated")
         return
 
     print(f"Move blocked. Target is {target_cube['type']}")
@@ -528,6 +553,12 @@ def run_action(action, cubes, cube_map, goal_cube=None):
     
     print(f"Goal cube found: {goal_cube}")
 
+    if goal_completed(goal_cube):
+        print("Goal reached!")
+        print(get_observations(cube_map, goal_cube))
+        pygame.quit()
+        sys.exit(0)
+
 # Adds original colours to cubes so toggleable hazards can reset
 # This may be later changed to customise level look without changing the underlying logic colours
 def store_original_colours(cubes):
@@ -552,23 +583,19 @@ def goal_completed(goal_cube):
         return True
     return False
 
-def distance_to_goal(goal_cube):
-    if goal_cube is None:
-        return None # Safety
+def distance_to_goal():
 
-    goal_x = goal_cube["x"]
-    goal_y = goal_cube["y"]
-    goal_z = goal_cube["z"] + 1
+    goal_x = CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][0]
+    goal_y = CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][1]
+    goal_z = CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][2] + 1
     # Giving the agent absolute distance should help it out
     return abs(agent["x"] - goal_x) + abs(agent["y"] - goal_y) + abs(agent["z"] - goal_z)
 
-def direction_to_goal(goal_cube):
-    if goal_cube is None:
-        return None
+def direction_to_goal():
 
-    dx = goal_cube["x"] - agent["x"]
-    dy = goal_cube["y"] - agent["y"]
-    dz = (goal_cube["z"] + 1) - agent["z"]
+    dx = CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][0] - agent["x"]
+    dy = CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][1] - agent["y"]
+    dz = (CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][2] + 1) - agent["z"]
 
     return {
         "x_difference": dx,
@@ -602,13 +629,13 @@ def get_observations(cube_map, goal_cube):
         
         "goal": {
             "position": None if goal_cube is None else {
-                "x": goal_cube["x"],
-                "y": goal_cube["y"],
-                "z": goal_cube["z"] + 1,
+                "x": CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][0],
+                "y": CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][1],
+                "z": CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][2] + 1,
             },
 
-            "distance": distance_to_goal(goal_cube),
-            "direction": direction_to_goal(goal_cube),
+            "distance": distance_to_goal(),
+            "direction": direction_to_goal(),
         },
 
         "valid_actions": [
@@ -626,7 +653,7 @@ def get_observations(cube_map, goal_cube):
 
 # Runs the main pygame window
 def main():
-    global last_agent_step
+    global last_agent_step, checkpoint_location
     # Setup and ai flag
     args = get_launch_options()
     Agent = None
@@ -646,18 +673,18 @@ def main():
         pygame.quit()
         sys.exit(1)
 
-    cubes, cube_map, spawn_position = LevelLoader.load_vox_cubes(VOX_FILE, LEVEL_SIZE)
+    cubes, cube_map, checkpoint_location = LevelLoader.load_vox_cubes(VOX_FILE, LEVEL_SIZE)
     store_original_colours(cubes)
 
-    if spawn_position is None: # Safety check, every level should have a spawn point
+    if checkpoint_location is None: # Safety check, every level should have a spawn point
         print("No spawn point found")
         pygame.quit()
         sys.exit(1)
 
 
-    agent["x"] = spawn_position[0]
-    agent["y"] = spawn_position[1]
-    agent["z"] = spawn_position[2]
+    agent["x"] = checkpoint_location[0]
+    agent["y"] = checkpoint_location[1]
+    agent["z"] = checkpoint_location[2]
     agent["alive"] = True
 
     agent_step_count = 0
