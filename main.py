@@ -145,10 +145,12 @@ def get_launch_options():
 
     args = parser.parse_args()
 
-    if args.checkpoint.startswith("chk"):
-        checkpoint_start = int(args.checkpoint.replace("chk", ""))
-
-    return parser.parse_args()
+    if args.checkpoint is not None:
+        if args.checkpoint.startswith("chk"):
+            checkpoint_start = int(args.checkpoint.replace("chk", ""))
+        else:
+            checkpoint_start = int(args.checkpoint) # Safety
+    return args
 
 # Gets the highest cube at a x y position
 # Used for finding the tile the agent is trying to move to and for top of ladder
@@ -274,6 +276,24 @@ def can_enter_cube(cube):
     if cube["type"] in WALKABLE_TYPES:
         return True
     return False
+
+# Checks if movement from one tile to another is valid
+# This fixes the pathing issues with walkable tiles of different elevations
+def can_move_between(current_tile, target_cube):
+
+    if target_cube is None:
+        return False
+
+    if not can_enter_cube(target_cube):
+        return False
+
+    if current_tile is None:
+        return True
+
+    if current_tile["type"] == "path" and target_cube["type"] == "path" and current_tile["z"] != target_cube["z"]:
+        return False
+
+    return True
 
 # At target, find the highest cube below agent
 # Used in ledge logic
@@ -408,10 +428,9 @@ def move_in_direction(direction, cubes, cube_map):
         return
 
     # Prevents moving directly between white path cubes at different heights
-    if current_tile and target_cube:
-        if current_tile["type"] == "path" and target_cube["type"] == "path" and current_tile["z"] != target_cube["z"]:
-            print("Move blocked. Cannot move directly between path cubes at different heights")
-            return
+    if not can_move_between(current_tile, target_cube):
+        print("Move blocked. Cannot move directly between path cubes at different heights")
+        return
     
     # Stairs logic
     if target_cube["type"] == "stairs":
@@ -470,10 +489,14 @@ def sense_direction(cube_map, direction):
     target_x = agent["x"] + dx
     target_y = agent["y"] + dy
 
+    current_tile = cube_map.get((agent["x"], agent["y"], agent["z"] - 1))
     target_cube = get_cube_at_xy(cube_map, target_x, target_y)
 
     if target_cube is None:
         return "empty"
+
+    if not can_move_between(current_tile, target_cube):
+        return "blocked_height_change"
 
     if target_cube["type"] == "toggleable_hazard":
         if toggleable_hazards_are_safe():
@@ -495,11 +518,13 @@ def get_scan_tile_type(cube):
     return cube["type"]
 
 
-def get_safe_directions_from_position(cube_map, x, y):
+def get_safe_directions_from_position(cube_map, x, y, current_cube):
 
     safe_directions = []
 
     for direction, delta in DIRECTION_TO_VECTOR.items():
+        
+        if direction == "stay": continue
 
         dx, dy = delta
 
@@ -509,7 +534,7 @@ def get_safe_directions_from_position(cube_map, x, y):
         target_cube = get_cube_at_xy(cube_map, target_x, target_y)
         target_type = get_scan_tile_type(target_cube)
 
-        if target_cube is not None and can_enter_cube(target_cube):
+        if can_move_between(current_cube, target_cube):
             safe_directions.append({
                 "direction": direction,
                 "tile": target_type,
@@ -531,6 +556,7 @@ def scan_branch(cube_map, start_direction):
     current_y = agent["y"]
     previous_x = agent["x"]
     previous_y = agent["y"]
+    previous_cube = cube_map.get((agent["x"], agent["y"], agent["z"] - 1))
     path = []
 
     for step in range(1, BRANCH_SCAN_LIMIT + 1):
@@ -552,7 +578,7 @@ def scan_branch(cube_map, start_direction):
                 "reason": "branch reaches empty space",
             }
 
-        if not can_enter_cube(current_cube):
+        if not can_move_between(previous_cube, current_cube):
             return {
                 "start_direction": start_direction,
                 "result": "blocked",
@@ -560,7 +586,7 @@ def scan_branch(cube_map, start_direction):
                 "steps": step,
                 "end_position": {"x": current_x, "y": current_y},
                 "path_preview": path,
-                "reason": f"branch is blocked by {current_type}",
+                "reason": f"branch is blocked by {current_type} or invalid height change",
             }
 
         if current_type == "checkpoint":
@@ -594,7 +620,7 @@ def scan_branch(cube_map, start_direction):
                 "reason": f"branch reaches {current_type}, which is a valid continuation",
             }
 
-        safe_directions = get_safe_directions_from_position(cube_map, current_x, current_y)
+        safe_directions = get_safe_directions_from_position(cube_map, current_x, current_y, current_cube)
         onward_directions = []
 
         for safe_direction in safe_directions:
@@ -630,6 +656,7 @@ def scan_branch(cube_map, start_direction):
 
         previous_x = current_x
         previous_y = current_y
+        previous_cube = current_cube
 
     return {
         "start_direction": start_direction,
@@ -997,7 +1024,7 @@ def main():
 
     if checkpoint_start:
         if checkpoint_start > 5: checkpoint_start = 5
-        checkpoint_tracking_iterator = checkpoint_start
+        checkpoint_tracking_iterator = 0
         for i in range(checkpoint_start):
             agent["x"] = CHECKPOINT_LOCATIONS[i][0]
             agent["y"] = CHECKPOINT_LOCATIONS[i][1]

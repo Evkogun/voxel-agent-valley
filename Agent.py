@@ -36,12 +36,11 @@ SAFE_TILES = {
 def choose_action(observation, goal, screenshot_path=None):
     global recent_positions, visited_counts
 
-    observation["recent_positions"] = recent_positions[-2:]
+    observation["recent_positions"] = recent_positions[-6:]
 
     current_position_key = (
         observation["position"]["x"],
         observation["position"]["y"],
-        observation["position"]["z"],
     )
 
     visited_counts[current_position_key] = visited_counts.get(current_position_key, 0) + 1
@@ -49,6 +48,11 @@ def choose_action(observation, goal, screenshot_path=None):
     x = observation["position"]["x"]
     y = observation["position"]["y"]
     z = observation["position"]["z"]
+
+    recent_xy_positions = {
+        (pos["x"], pos["y"])
+        for pos in recent_positions[-6:]
+    }
 
     observation["possible_moves"] = {}
 
@@ -66,7 +70,6 @@ def choose_action(observation, goal, screenshot_path=None):
         target_position_key = (
             target_position["x"],
             target_position["y"],
-            target_position["z"],
         )
 
         observation["possible_moves"][action] = {
@@ -74,6 +77,7 @@ def choose_action(observation, goal, screenshot_path=None):
             "target_position": target_position,
             "target_tile": target_tile,
             "target_visit_count": visited_counts.get(target_position_key, 0),
+            "target_recent": target_position_key in recent_xy_positions,
         }
 
     prompt = f"""
@@ -102,11 +106,14 @@ Rules:
 5. Else if an adjacent tile is checkpoint, move into it.
 6. Use observation.branch_analysis as the main navigation guide.
 7. Prefer branch results in this order:
-   goal, checkpoint, special_continuation, junction, scan_limit_reached, then lowest target_visit_count.
-8. Avoid branch results: dead_end, empty, blocked, unsafe unless no better safe branch exists.
-9. Stairs and ladders appear as special_continuation and are useful, not dead ends.
-10. goal.direction is only a hint, not a command.
-11. It is allowed to temporarily increase goal distance to avoid a dead end or return to a junction.
+goal, checkpoint, safe non-recent moves, special_continuation, junction, scan_limit_reached, then lowest target_visit_count.
+8. A move with target_recent true is usually backtracking.
+9. Do not choose a target_recent move if there is another safe move with target_recent false.
+10. special_continuation does not override target_recent.
+11. Avoid branch results: dead_end, empty, blocked, unsafe unless no better safe branch exists.
+12. Stairs and ladders are useful only when they lead to new progress. If recently visited and another safe route exists, avoid them.
+13. goal.direction is only a hint, not a command.
+14. It is allowed to temporarily increase goal distance to avoid a dead end or return to a junction.
 
 Backtracking and junction rules:
 1. Do not prefer a branch just because it reaches a junction in fewer steps.
@@ -142,6 +149,8 @@ Final check:
 - never choose an unsafe tile.
 - do not choose a dead_end branch if there is a safe junction, checkpoint, goal, stairs, ladder, or scan_limit_reached branch.
 - do not choose a one-step junction backtrack if there is another safe branch leading to a further junction.
+- if the chosen action has possible_moves[action].target_recent true and another safe action has target_recent false, choose the non-recent action instead.
+- do not choose recently visited stairs or ladders unless every other safe action is worse or unsafe.
 """
 
     content = [{"type": "input_text", "text": prompt}]
@@ -166,6 +175,33 @@ Final check:
         return "take"
 
     action = decision.get("action")
+
+    possible_moves = observation.get("possible_moves", {})
+    branch_analysis = observation.get("branch_analysis", {})
+
+    chosen_move = possible_moves.get(action, {})
+    chosen_recent = chosen_move.get("target_recent", False)
+
+    if chosen_recent:
+        for alternative_action, alternative_move in possible_moves.items():
+            alternative_tile = alternative_move.get("target_tile")
+            alternative_recent = alternative_move.get("target_recent", False)
+            alternative_branch = branch_analysis.get(alternative_action, {})
+            alternative_result = alternative_branch.get("result")
+
+            if alternative_tile not in SAFE_TILES:
+                continue
+
+            if alternative_recent:
+                continue
+
+            if alternative_result in {"unsafe", "blocked", "empty", "dead_end"}:
+                continue
+
+            print(f"Prevented recent-position loop. Overriding {action} with {alternative_action}")
+            action = alternative_action
+            break
+
     chosen_tile = decision.get("chosen_tile", "")
     reason = decision.get("reason", "")
 
