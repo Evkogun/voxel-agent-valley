@@ -34,6 +34,7 @@ SAFE_TILES = {
     "ledge",
     "timed_pressure_plate",
     "toggleable_hazard_safe",
+    "safe_fall"
 }
 
 def print_move_memory_analysis(observation):
@@ -178,7 +179,7 @@ move_west -> surroundings.west
 
 Rules:
 1. Safety is absolute.
-2. Only move into: path, spawn, checkpoint, goal, stairs, ladder, ledge, timed_pressure_plate, toggleable_hazard_safe.
+2. Only move into: path, spawn, checkpoint, goal, stairs, ladder, ledge, safe_fall, timed_pressure_plate, toggleable_hazard_safe.
 3. Never move into: death_tile, hazard, empty, toggleable_hazard_active, door, unknown.
 4. If an adjacent tile is goal, move into it.
 5. Else if an adjacent tile is checkpoint, move into it.
@@ -192,6 +193,7 @@ goal, checkpoint, safe non-recent moves, special_continuation, junction, scan_li
 12. Stairs and ladders are useful only when they lead to new progress. If recently visited and another safe route exists, avoid them.
 13. goal.direction is only a hint, not a command.
 14. It is allowed to temporarily increase goal distance to avoid a dead end or return to a junction.
+15. safe_fall means the adjacent space is empty, but the current ladder or ledge allows a controlled safe fall. Treat safe_fall as a valid special_continuation.
 
 Memory and branch rules:
 1. Use possible_moves[action].branch_recent_count to detect loops.

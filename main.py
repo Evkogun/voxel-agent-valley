@@ -493,6 +493,8 @@ def sense_direction(cube_map, direction):
     target_cube = get_cube_at_xy(cube_map, target_x, target_y)
 
     if target_cube is None:
+        if can_safely_fall_from_current_tile(cube_map, target_x, target_y):
+            return "safe_fall"
         return "empty"
 
     if not can_move_between(current_tile, target_cube):
@@ -674,6 +676,28 @@ def get_branch_analysis(cube_map):
 
     for action, direction in MOVE_ACTION_TO_DIRECTION.items():
         tile_type = sense_direction(cube_map, direction)
+        if tile_type == "safe_fall":
+            dx, dy = DIRECTION_TO_VECTOR[direction]
+
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "special_continuation",
+                "tile": tile_type,
+                "steps": 1,
+                "end_position": {
+                    "x": agent["x"] + dx,
+                    "y": agent["y"] + dy,
+                },
+                "path_preview": [
+                    {
+                        "x": agent["x"] + dx,
+                        "y": agent["y"] + dy,
+                        "tile": "safe_fall",
+                    }
+                ],
+                "reason": f"{direction} is a safe fall from the current ladder or ledge",
+            }
+            continue
         if tile_type not in WALKABLE_TYPES and tile_type != "toggleable_hazard_safe":
             branch_analysis[action] = {
                 "start_direction": direction,
@@ -975,6 +999,17 @@ def print_agent_text_vision(cubes):
         for row in layer["map"]:
             print(row)
         print("")
+
+def can_safely_fall_from_current_tile(cube_map, target_x, target_y):
+    current_tile = cube_map.get((agent["x"], agent["y"], agent["z"] - 1))
+
+    if current_tile is None: return False
+    if current_tile["type"] not in {"ledge", "ladder"}: return False
+
+    fall_target = get_fall_target(cube_map, target_x, target_y)
+    if fall_target is None: return False
+
+    return can_enter_cube(fall_target)
 
 # Runs the main pygame window
 def main():
