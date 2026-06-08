@@ -825,7 +825,6 @@ def run_action(action, cubes, cube_map, goal_cube=None):
         print(f"Unknown action: {action}")
 
     print_senses(cube_map)
-    print_branch_analysis(cube_map)
 
     if goal_cube is not None:
         observation = get_observations(cube_map, goal_cube)
@@ -976,19 +975,6 @@ def print_agent_text_vision(cubes):
         for row in layer["map"]:
             print(row)
         print("")
-
-def print_branch_analysis(cube_map):
-    print("Branch analysis")
-
-    branch_analysis = get_branch_analysis(cube_map)
-
-    for action, analysis in branch_analysis.items():
-        result = analysis.get("result")
-        steps = analysis.get("steps", "-")
-        reason = analysis.get("reason", "")
-
-        print(f"{action}: {result}, steps: {steps}, {reason}")
-    print("")
 
 # Runs the main pygame window
 def main():

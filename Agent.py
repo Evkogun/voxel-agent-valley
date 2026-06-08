@@ -3,6 +3,9 @@ from openai import OpenAI
 
 client = OpenAI()
 
+DEBUG_MEMORY = True
+MEMORY = 12
+
 VALID_ACTIONS = {
     "move_north",
     "move_west",
@@ -33,10 +36,65 @@ SAFE_TILES = {
     "toggleable_hazard_safe",
 }
 
+def print_move_memory_analysis(observation):
+    if not DEBUG_MEMORY:
+        return
+
+    print("")
+    print("Move memory analysis")
+    print(
+        f"{'action':<12} "
+        f"{'tile':<24} "
+        f"{'recent':<7} "
+        f"{'visits':<6} "
+        f"{'result':<22} "
+        f"{'steps':<5} "
+        f"{'br_rec':<6} "
+        f"{'br_len':<6} "
+        f"{'score':<5}"
+    )
+    print("-" * 105)
+
+    for action, move in observation["possible_moves"].items():
+        branch = observation["branch_analysis"].get(action, {})
+        result = branch.get("result", "unknown")
+        steps = branch.get("steps", "-")
+
+        print(
+            f"{action:<12} "
+            f"{str(move['target_tile']):<24} "
+            f"{str(move['target_recent']):<7} "
+            f"{move['target_visit_count']:<6} "
+            f"{result:<22} "
+            f"{str(steps):<5} "
+            f"{move['branch_recent_count']:<6} "
+            f"{move['branch_length']:<6} "
+            f"{move['exploration_score']:<5}"
+        )
+
+    print("")
+
+
+def print_final_move_memory(action, possible_moves):
+    if not DEBUG_MEMORY or action not in possible_moves:
+        return
+
+    move = possible_moves[action]
+
+    print(
+        f"Final memory choice: {action} | "
+        f"tile={move['target_tile']} | "
+        f"recent={move['target_recent']} | "
+        f"visits={move['target_visit_count']} | "
+        f"branch_recent={move['branch_recent_count']} | "
+        f"branch_length={move['branch_length']} | "
+        f"score={move['exploration_score']}"
+    )
+
 def choose_action(observation, goal, screenshot_path=None):
     global recent_positions, visited_counts
 
-    observation["recent_positions"] = recent_positions[-6:]
+    observation["recent_positions"] = recent_positions[-MEMORY:]
 
     current_position_key = (
         observation["position"]["x"],
@@ -51,8 +109,19 @@ def choose_action(observation, goal, screenshot_path=None):
 
     recent_xy_positions = {
         (pos["x"], pos["y"])
-        for pos in recent_positions[-6:]
+        for pos in recent_positions[-MEMORY:]
     }
+
+    def count_recent_tiles_in_branch(branch):
+        recent_count = 0
+
+        for tile in branch.get("path_preview", []):
+            tile_key = (tile["x"], tile["y"])
+
+            if tile_key in recent_xy_positions:
+                recent_count += 1
+
+        return recent_count
 
     observation["possible_moves"] = {}
 
@@ -72,13 +141,22 @@ def choose_action(observation, goal, screenshot_path=None):
             target_position["y"],
         )
 
+        branch = observation["branch_analysis"].get(action, {})
+        branch_recent_count = count_recent_tiles_in_branch(branch)
+        branch_length = len(branch.get("path_preview", []))
+
         observation["possible_moves"][action] = {
             "direction": direction,
             "target_position": target_position,
             "target_tile": target_tile,
             "target_visit_count": visited_counts.get(target_position_key, 0),
             "target_recent": target_position_key in recent_xy_positions,
+            "branch_recent_count": branch_recent_count,
+            "branch_length": branch_length,
+            "exploration_score": branch_length - branch_recent_count,
         }
+
+    print_move_memory_analysis(observation)
 
     prompt = f"""
 You are an agent in a small voxel world.
@@ -115,6 +193,14 @@ goal, checkpoint, safe non-recent moves, special_continuation, junction, scan_li
 13. goal.direction is only a hint, not a command.
 14. It is allowed to temporarily increase goal distance to avoid a dead end or return to a junction.
 
+Memory and branch rules:
+1. Use possible_moves[action].branch_recent_count to detect loops.
+2. Prefer branches with fewer recent tiles.
+3. exploration_score means how much of the branch seems new.
+4. When no goal or checkpoint is visible, prefer the safe branch with the highest exploration_score.
+5. If a branch has many recent tiles, treat it as already explored unless it reaches a goal, checkpoint, or necessary special continuation.
+6. Do not choose a special_continuation branch if it mostly revisits recent tiles and another safe branch is newer.
+
 Backtracking and junction rules:
 1. Do not prefer a branch just because it reaches a junction in fewer steps.
 2. A junction after 1 step is only bad if that move returns to a recent position.
@@ -140,7 +226,7 @@ Return JSON only in this exact format:
     "action": "move_north",
     "chosen_direction": "north",
     "chosen_tile": "path",
-    "reason": "brief reason using surroundings, branch_analysis, target_visit_count, and whether the move is backtracking"
+    "reason": "brief reason using surroundings, branch_analysis, target_visit_count, target_recent, branch_recent_count, exploration_score, and whether the move is backtracking"
 }}
 
 Final check:
@@ -151,6 +237,7 @@ Final check:
 - do not choose a one-step junction backtrack if there is another safe branch leading to a further junction.
 - if the chosen action has possible_moves[action].target_recent true and another safe action has target_recent false, choose the non-recent action instead.
 - do not choose recently visited stairs or ladders unless every other safe action is worse or unsafe.
+- if two safe branches are otherwise similar, choose the one with the higher exploration_score.
 """
 
     content = [{"type": "input_text", "text": prompt}]
@@ -181,11 +268,18 @@ Final check:
 
     chosen_move = possible_moves.get(action, {})
     chosen_recent = chosen_move.get("target_recent", False)
+    chosen_score = chosen_move.get("exploration_score", 0)
+    chosen_branch = branch_analysis.get(action, {})
+    chosen_result = chosen_branch.get("result")
 
-    if chosen_recent:
+    if chosen_recent or chosen_score <= 0:
+        best_alternative_action = None
+        best_alternative_score = -1
+
         for alternative_action, alternative_move in possible_moves.items():
             alternative_tile = alternative_move.get("target_tile")
             alternative_recent = alternative_move.get("target_recent", False)
+            alternative_score = alternative_move.get("exploration_score", 0)
             alternative_branch = branch_analysis.get(alternative_action, {})
             alternative_result = alternative_branch.get("result")
 
@@ -198,12 +292,21 @@ Final check:
             if alternative_result in {"unsafe", "blocked", "empty", "dead_end"}:
                 continue
 
-            print(f"Prevented recent-position loop. Overriding {action} with {alternative_action}")
-            action = alternative_action
-            break
+            if alternative_score > best_alternative_score:
+                best_alternative_action = alternative_action
+                best_alternative_score = alternative_score
+
+        if best_alternative_action is not None and chosen_result not in {"goal", "checkpoint"}:
+            print(f"Prevented recent/low-exploration loop. Overriding {action} with {best_alternative_action}")
+            action = best_alternative_action
 
     chosen_tile = decision.get("chosen_tile", "")
     reason = decision.get("reason", "")
+
+    if action in possible_moves:
+        chosen_tile = possible_moves[action].get("target_tile", chosen_tile)
+
+    print_final_move_memory(action, possible_moves)
 
     print(f"AI chosen tile: {chosen_tile}")
     print(f"AI reason: {reason}")
