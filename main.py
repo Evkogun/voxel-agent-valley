@@ -482,6 +482,16 @@ def take_around_current_tile(cubes, cube_map):
     print("There is nothing to take")
 
 
+# Checks if a path tile leads to a key that can be taken from that position
+def get_reachable_key_from_position(cube_map, x, y, standing_z):
+
+    for dx, dy in DIRECTION_TO_VECTOR.values():
+        key_cube = cube_map.get((x + dx, y + dy, standing_z))
+
+        if key_cube is not None and key_cube["type"] in KEY_TYPES:
+            return key_cube
+    return None
+
 def sense_direction(cube_map, direction):
 
     dx, dy = DIRECTION_TO_VECTOR[direction]
@@ -497,6 +507,14 @@ def sense_direction(cube_map, direction):
             return "safe_fall"
         return "empty"
 
+    if target_cube["type"] in KEY_TYPES:
+        return target_cube["type"]
+
+    if target_cube["type"] == "door":
+        if len(agent["inventory"]) > 0:
+            return "door"
+        return "door_blocked"
+
     if not can_move_between(current_tile, target_cube):
         return "blocked_height_change"
 
@@ -511,6 +529,14 @@ def get_scan_tile_type(cube):
 
     if cube is None:
         return "empty"
+
+    if cube["type"] in KEY_TYPES:
+        return cube["type"]
+
+    if cube["type"] == "door":
+        if len(agent["inventory"]) > 0:
+            return "door"
+        return "door_blocked"
 
     if cube["type"] == "toggleable_hazard":
         if toggleable_hazards_are_safe():
@@ -578,6 +604,61 @@ def scan_branch(cube_map, start_direction):
                 "end_position": {"x": current_x, "y": current_y},
                 "path_preview": path,
                 "reason": "branch reaches empty space",
+            }
+
+        if current_type in KEY_TYPES:
+            return {
+                "start_direction": start_direction,
+                "result": "key",
+                "key_type": current_type,
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": f"branch reaches {current_type}",
+            }
+
+        reachable_key = get_reachable_key_from_position(
+            cube_map,
+            current_x,
+            current_y,
+            current_cube["z"] + 1
+        )
+
+        if reachable_key is not None:
+            return {
+                "start_direction": start_direction,
+                "result": "key",
+                "key_type": reachable_key["type"],
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "key_position": {
+                    "x": reachable_key["x"],
+                    "y": reachable_key["y"],
+                    "z": reachable_key["z"],
+                },
+                "path_preview": path,
+                "reason": f"branch reaches a path tile next to {reachable_key['type']}",
+            }
+
+        if current_type == "door_blocked":
+            return {
+                "start_direction": start_direction,
+                "result": "blocked",
+                "blocked_by": current_type,
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches a door but the agent has no key",
+            }
+
+        if current_type == "door":
+            return {
+                "start_direction": start_direction,
+                "result": "door",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches a door and the agent has at least one key",
             }
 
         if not can_move_between(previous_cube, current_cube):
@@ -698,6 +779,62 @@ def get_branch_analysis(cube_map):
                 "reason": f"{direction} is a safe fall from the current ladder or ledge",
             }
             continue
+        if tile_type in KEY_TYPES:
+            dx, dy = DIRECTION_TO_VECTOR[direction]
+
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "key",
+                "tile": tile_type,
+                "steps": 1,
+                "end_position": {
+                    "x": agent["x"] + dx,
+                    "y": agent["y"] + dy,
+                },
+                "path_preview": [
+                    {
+                        "x": agent["x"] + dx,
+                        "y": agent["y"] + dy,
+                        "tile": tile_type,
+                    }
+                ],
+                "reason": f"{direction} has adjacent {tile_type}; use take",
+            }
+            continue
+
+        if tile_type == "door_blocked":
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "blocked",
+                "tile": tile_type,
+                "steps": 1,
+                "reason": f"{direction} has a door but the agent has no key",
+            }
+            continue
+
+        if tile_type == "door":
+            dx, dy = DIRECTION_TO_VECTOR[direction]
+
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "door",
+                "tile": tile_type,
+                "steps": 1,
+                "end_position": {
+                    "x": agent["x"] + dx,
+                    "y": agent["y"] + dy,
+                },
+                "path_preview": [
+                    {
+                        "x": agent["x"] + dx,
+                        "y": agent["y"] + dy,
+                        "tile": tile_type,
+                    }
+                ],
+                "reason": f"{direction} has a door and the agent has at least one key",
+            }
+            continue
+
         if tile_type not in WALKABLE_TYPES and tile_type != "toggleable_hazard_safe":
             branch_analysis[action] = {
                 "start_direction": direction,

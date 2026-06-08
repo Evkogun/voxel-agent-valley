@@ -37,6 +37,11 @@ SAFE_TILES = {
     "safe_fall"
 }
 
+KEY_TILES = {
+    "key1",
+    "key2",
+}
+
 def print_move_memory_analysis(observation):
     if not DEBUG_MEMORY:
         return
@@ -146,6 +151,12 @@ def choose_action(observation, goal, screenshot_path=None):
         branch_recent_count = count_recent_tiles_in_branch(branch)
         branch_length = len(branch.get("path_preview", []))
 
+        branch_result = branch.get("result")
+        exploration_score = branch_length - branch_recent_count
+
+        if branch_result == "key":
+            exploration_score += 10
+
         observation["possible_moves"][action] = {
             "direction": direction,
             "target_position": target_position,
@@ -154,7 +165,8 @@ def choose_action(observation, goal, screenshot_path=None):
             "target_recent": target_position_key in recent_xy_positions,
             "branch_recent_count": branch_recent_count,
             "branch_length": branch_length,
-            "exploration_score": branch_length - branch_recent_count,
+            "branch_result": branch_result,
+            "exploration_score": exploration_score,
         }
 
     print_move_memory_analysis(observation)
@@ -180,12 +192,12 @@ move_west -> surroundings.west
 Rules:
 1. Safety is absolute.
 2. Only move into: path, spawn, checkpoint, goal, stairs, ladder, ledge, safe_fall, timed_pressure_plate, toggleable_hazard_safe.
-3. Never move into: death_tile, hazard, empty, toggleable_hazard_active, door, unknown.
+3. Never move into: death_tile, hazard, empty, toggleable_hazard_active, door_blocked, unknown.
 4. If an adjacent tile is goal, move into it.
 5. Else if an adjacent tile is checkpoint, move into it.
 6. Use observation.branch_analysis as the main navigation guide.
-7. Prefer branch results in this order:
-goal, checkpoint, safe non-recent moves, special_continuation, junction, scan_limit_reached, then lowest target_visit_count.
+Prefer branch results in this order:
+goal, checkpoint, key, safe non-recent moves, special_continuation, door, junction, scan_limit_reached, then lowest target_visit_count.
 8. A move with target_recent true is usually backtracking.
 9. Do not choose a target_recent move if there is another safe move with target_recent false.
 10. special_continuation does not override target_recent.
@@ -202,6 +214,13 @@ Memory and branch rules:
 4. When no goal or checkpoint is visible, prefer the safe branch with the highest exploration_score.
 5. If a branch has many recent tiles, treat it as already explored unless it reaches a goal, checkpoint, or necessary special continuation.
 6. Do not choose a special_continuation branch if it mostly revisits recent tiles and another safe branch is newer.
+
+Key and door rules:
+1. If any adjacent tile is key1 or key2, choose take immediately.
+2. Branches that reach keys are valuable and should be prioritised.
+3. Avoid door_blocked; it means the agent has no key.
+4. door means the agent has at least one key, so it may be useful.
+5. Moving into a door may open it rather than moving through it immediately.
 
 Backtracking and junction rules:
 1. Do not prefer a branch just because it reaches a junction in fewer steps.
