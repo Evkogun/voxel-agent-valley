@@ -6,7 +6,24 @@ client = OpenAI()
 
 DEBUG_MEMORY = True
 MEMORY = 12
+SPECIAL_CONTINUATION_MEMORY = 5
 OBJECTIVE_WEIGHT = 2
+KEY_BONUS = 10
+UNLOCKED_DOOR_BONUS = 25
+
+# This is meant to speed up the prompting
+# Removing these allows the systematic abstraction of the agenst observation format
+SEND_GOAL_TO_AI = True
+SEND_POSITION_TO_AI = True
+SEND_SURROUNDINGS_TO_AI = True
+SEND_INVENTORY_TO_AI = True
+SEND_GOAL_INFO_TO_AI = True
+SEND_VALID_ACTIONS_TO_AI = True
+SEND_BRANCH_ANALYSIS_TO_AI = True
+SEND_POSSIBLE_MOVES_TO_AI = True
+SEND_RECENT_POSITIONS_TO_AI = False
+SEND_TEXT_VISION_TO_AI = False
+SEND_OTHER_TO_AI = False
 
 VALID_ACTIONS = {
     "move_north",
@@ -36,7 +53,8 @@ SAFE_TILES = {
     "ledge",
     "timed_pressure_plate",
     "toggleable_hazard_safe",
-    "safe_fall"
+    "safe_fall",
+    "door"
 }
 
 KEY_TILES = {
@@ -99,6 +117,55 @@ def print_final_move_memory(action, possible_moves):
         f"score={move['exploration_score']}"
     )
 
+
+def build_ai_observation(observation):
+    ai_observation = {}
+    used_keys = set()
+
+    if SEND_POSITION_TO_AI and "position" in observation:
+        ai_observation["position"] = observation["position"]
+        used_keys.add("position")
+
+    if SEND_SURROUNDINGS_TO_AI and "surroundings" in observation:
+        ai_observation["surroundings"] = observation["surroundings"]
+        used_keys.add("surroundings")
+
+    if SEND_INVENTORY_TO_AI and "inventory" in observation:
+        ai_observation["inventory"] = observation["inventory"]
+        used_keys.add("inventory")
+
+    if SEND_GOAL_INFO_TO_AI and "goal" in observation:
+        ai_observation["goal"] = observation["goal"]
+        used_keys.add("goal")
+
+    if SEND_VALID_ACTIONS_TO_AI and "valid_actions" in observation:
+        ai_observation["valid_actions"] = observation["valid_actions"]
+        used_keys.add("valid_actions")
+
+    if SEND_BRANCH_ANALYSIS_TO_AI and "branch_analysis" in observation:
+        ai_observation["branch_analysis"] = observation["branch_analysis"]
+        used_keys.add("branch_analysis")
+
+    if SEND_POSSIBLE_MOVES_TO_AI and "possible_moves" in observation:
+        ai_observation["possible_moves"] = observation["possible_moves"]
+        used_keys.add("possible_moves")
+
+    if SEND_RECENT_POSITIONS_TO_AI and "recent_positions" in observation:
+        ai_observation["recent_positions"] = observation["recent_positions"]
+        used_keys.add("recent_positions")
+
+    if SEND_TEXT_VISION_TO_AI and "text_vision" in observation:
+        ai_observation["text_vision"] = observation["text_vision"]
+        used_keys.add("text_vision")
+
+    if SEND_OTHER_TO_AI:
+        for key, value in observation.items():
+            if key not in used_keys and key != "text_vision":
+                ai_observation[key] = value
+
+    return ai_observation
+
+
 def choose_action(observation, goal, screenshot_path=None):
     global recent_positions, visited_counts
 
@@ -118,6 +185,11 @@ def choose_action(observation, goal, screenshot_path=None):
     recent_xy_positions = {
         (pos["x"], pos["y"])
         for pos in recent_positions[-MEMORY:]
+    }
+
+    recent_special_positions = {
+        (pos["x"], pos["y"])
+        for pos in recent_positions[-SPECIAL_CONTINUATION_MEMORY:]
     }
 
     def count_recent_tiles_in_branch(branch):
@@ -184,7 +256,19 @@ def choose_action(observation, goal, screenshot_path=None):
                 exploration_score -= OBJECTIVE_WEIGHT
 
         if branch_result == "key":
-            exploration_score += 10
+            exploration_score += KEY_BONUS
+
+        if branch_result == "door":
+            exploration_score += UNLOCKED_DOOR_BONUS
+
+        if branch_result in {"unsafe", "blocked", "empty"}:
+            exploration_score = -999
+
+        if branch_result == "dead_end":
+            exploration_score -= 10
+
+        if branch_result == "special_continuation" and target_position_key in recent_special_positions:
+            exploration_score -= 10
 
         observation["possible_moves"][action] = {
             "direction": direction,
@@ -200,14 +284,17 @@ def choose_action(observation, goal, screenshot_path=None):
 
     print_move_memory_analysis(observation)
 
+    ai_observation = build_ai_observation(observation)
+    goal_for_ai = goal if SEND_GOAL_TO_AI else "Not sent"
+
     prompt = f"""
 You are an agent in a small voxel world.
 
 Goal:
-{goal}
+{goal_for_ai}
 
 Observation:
-{json.dumps(observation, indent=2)}
+{json.dumps(ai_observation)}
 
 Choose exactly one action:
 move_north, move_east, move_south, move_west, take.
@@ -220,13 +307,13 @@ move_west -> surroundings.west
 
 Rules:
 1. Safety is absolute.
-2. Only move into: path, spawn, checkpoint, goal, stairs, ladder, ledge, safe_fall, timed_pressure_plate, toggleable_hazard_safe.
+2. Only move into: path, spawn, checkpoint, goal, stairs, ladder, ledge, safe_fall, timed_pressure_plate, toggleable_hazard_safe, door.
 3. Never move into: death_tile, hazard, empty, toggleable_hazard_active, door_blocked, unknown.
 4. If an adjacent tile is goal, move into it.
 5. Else if an adjacent tile is checkpoint, move into it.
 6. Use observation.branch_analysis as the main navigation guide.
 Prefer branch results in this order:
-goal, checkpoint, key, safe non-recent moves, special_continuation, door, junction, scan_limit_reached, then lowest target_visit_count.
+goal, checkpoint, key, door, safe non-recent moves, special_continuation, junction, scan_limit_reached, then lowest target_visit_count.
 8. A move with target_recent true is usually backtracking.
 9. Do not choose a target_recent move if there is another safe move with target_recent false.
 10. special_continuation does not override target_recent.
@@ -247,8 +334,8 @@ Memory and branch rules:
 Key and door rules:
 1. If any adjacent tile is key1 or key2, choose take immediately.
 2. Branches that reach keys are valuable and should be prioritised.
-3. Avoid door_blocked; it means the agent has no key.
-4. door means the agent has at least one key, so it may be useful.
+3. Avoid door_blocked; it means the agent is missing the required key or keys.
+4. door means the agent has all required keys, so it is very valuable and should be prioritised highly.
 5. Moving into a door may open it rather than moving through it immediately.
 
 Backtracking and junction rules:

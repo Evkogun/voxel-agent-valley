@@ -353,6 +353,28 @@ def fall_from_ledge(cube_map, target_x, target_y):
 
 
 # Door logic, checks for keys above the door and if not opens it by removing the cube
+def get_door_required_keys(cube_map, door_cube):
+
+    required_keys = []
+    door_stack = get_cube_at_xy(cube_map, door_cube["x"], door_cube["y"], top_count=5)
+
+    for cube in door_stack:
+        if cube["type"] in KEY_TYPES and cube["type"] not in required_keys:
+            required_keys.append(cube["type"])
+    return required_keys
+
+def get_missing_door_keys(cube_map, door_cube):
+
+    missing_keys = []
+
+    for key in get_door_required_keys(cube_map, door_cube):
+        if key not in agent["inventory"]:
+            missing_keys.append(key)
+    return missing_keys
+
+def has_required_door_keys(cube_map, door_cube):
+    return len(get_missing_door_keys(cube_map, door_cube)) == 0
+
 def handle_door(cubes, cube_map, door_cube):
 
     door_x = door_cube["x"]
@@ -360,11 +382,11 @@ def handle_door(cubes, cube_map, door_cube):
 
     door_stack = get_cube_at_xy(cube_map, door_x, door_y, top_count=5)
 
-    for cube in door_stack:
-        if cube["type"] in KEY_TYPES:
-            if cube["type"] not in agent["inventory"]:
-                print("Door blocked. You do not have all the keys")
-                return
+    missing_keys = get_missing_door_keys(cube_map, door_cube)
+
+    if missing_keys:
+        print(f"Door blocked. Missing keys: {missing_keys}")
+        return
 
     print("Door opened")
 
@@ -511,7 +533,7 @@ def sense_direction(cube_map, direction):
         return target_cube["type"]
 
     if target_cube["type"] == "door":
-        if len(agent["inventory"]) > 0:
+        if has_required_door_keys(cube_map, target_cube):
             return "door"
         return "door_blocked"
 
@@ -525,7 +547,7 @@ def sense_direction(cube_map, direction):
     return target_cube["type"]
 
 
-def get_scan_tile_type(cube):
+def get_scan_tile_type(cube_map, cube):
 
     if cube is None:
         return "empty"
@@ -534,7 +556,7 @@ def get_scan_tile_type(cube):
         return cube["type"]
 
     if cube["type"] == "door":
-        if len(agent["inventory"]) > 0:
+        if has_required_door_keys(cube_map, cube):
             return "door"
         return "door_blocked"
 
@@ -560,7 +582,7 @@ def get_safe_directions_from_position(cube_map, x, y, current_cube):
         target_y = y + dy
 
         target_cube = get_cube_at_xy(cube_map, target_x, target_y)
-        target_type = get_scan_tile_type(target_cube)
+        target_type = get_scan_tile_type(cube_map, target_cube)
 
         if can_move_between(current_cube, target_cube):
             safe_directions.append({
@@ -592,7 +614,7 @@ def scan_branch(cube_map, start_direction):
         current_x += dx
         current_y += dy
         current_cube = get_cube_at_xy(cube_map, current_x, current_y)
-        current_type = get_scan_tile_type(current_cube)
+        current_type = get_scan_tile_type(cube_map, current_cube)
 
         path.append({"x": current_x, "y": current_y, "tile": current_type})
 
@@ -645,20 +667,24 @@ def scan_branch(cube_map, start_direction):
                 "start_direction": start_direction,
                 "result": "blocked",
                 "blocked_by": current_type,
+                "required_keys": get_door_required_keys(cube_map, current_cube),
+                "missing_keys": get_missing_door_keys(cube_map, current_cube),
                 "steps": step,
                 "end_position": {"x": current_x, "y": current_y},
                 "path_preview": path,
-                "reason": "branch reaches a door but the agent has no key",
+                "reason": "branch reaches a door but the agent is missing required keys",
             }
 
         if current_type == "door":
             return {
                 "start_direction": start_direction,
                 "result": "door",
+                "required_keys": get_door_required_keys(cube_map, current_cube),
+                "missing_keys": [],
                 "steps": step,
                 "end_position": {"x": current_x, "y": current_y},
                 "path_preview": path,
-                "reason": "branch reaches a door and the agent has at least one key",
+                "reason": "branch reaches a door and the agent has all required keys",
             }
 
         if not can_move_between(previous_cube, current_cube):
@@ -803,22 +829,30 @@ def get_branch_analysis(cube_map):
             continue
 
         if tile_type == "door_blocked":
+            dx, dy = DIRECTION_TO_VECTOR[direction]
+            door_cube = get_cube_at_xy(cube_map, agent["x"] + dx, agent["y"] + dy)
+
             branch_analysis[action] = {
                 "start_direction": direction,
                 "result": "blocked",
                 "tile": tile_type,
+                "required_keys": get_door_required_keys(cube_map, door_cube),
+                "missing_keys": get_missing_door_keys(cube_map, door_cube),
                 "steps": 1,
-                "reason": f"{direction} has a door but the agent has no key",
+                "reason": f"{direction} has a door but the agent is missing required keys",
             }
             continue
 
         if tile_type == "door":
             dx, dy = DIRECTION_TO_VECTOR[direction]
+            door_cube = get_cube_at_xy(cube_map, agent["x"] + dx, agent["y"] + dy)
 
             branch_analysis[action] = {
                 "start_direction": direction,
                 "result": "door",
                 "tile": tile_type,
+                "required_keys": get_door_required_keys(cube_map, door_cube),
+                "missing_keys": [],
                 "steps": 1,
                 "end_position": {
                     "x": agent["x"] + dx,
@@ -831,7 +865,7 @@ def get_branch_analysis(cube_map):
                         "tile": tile_type,
                     }
                 ],
-                "reason": f"{direction} has a door and the agent has at least one key",
+                "reason": f"{direction} has a door and the agent has all required keys",
             }
             continue
 
