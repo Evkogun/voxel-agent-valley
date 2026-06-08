@@ -1,10 +1,12 @@
 import json
-from openai import OpenAI
+import time
+from openai import OpenAI, APIError, APITimeoutError, APIConnectionError, RateLimitError
 
 client = OpenAI()
 
 DEBUG_MEMORY = True
 MEMORY = 12
+OBJECTIVE_WEIGHT = 2
 
 VALID_ACTIONS = {
     "move_north",
@@ -152,7 +154,34 @@ def choose_action(observation, goal, screenshot_path=None):
         branch_length = len(branch.get("path_preview", []))
 
         branch_result = branch.get("result")
-        exploration_score = branch_length - branch_recent_count
+        exploration_score = 0
+
+        for tile in branch.get("path_preview", []):
+            tile_key = (tile["x"], tile["y"])
+
+            if tile_key not in visited_counts:
+                exploration_score += 1
+
+        goal_direction = observation["goal"]["direction"]["general_direction"]
+        # Meant more as a tiebreaker and to mildly steer
+        if target_tile in SAFE_TILES:
+            if direction == goal_direction.get("east_west"):
+                exploration_score += OBJECTIVE_WEIGHT
+
+            if direction == goal_direction.get("north_south"):
+                exploration_score += OBJECTIVE_WEIGHT
+
+            if goal_direction.get("east_west") == "west" and direction == "east":
+                exploration_score -= OBJECTIVE_WEIGHT
+
+            if goal_direction.get("east_west") == "east" and direction == "west":
+                exploration_score -= OBJECTIVE_WEIGHT
+
+            if goal_direction.get("north_south") == "north" and direction == "south":
+                exploration_score -= OBJECTIVE_WEIGHT
+
+            if goal_direction.get("north_south") == "south" and direction == "north":
+                exploration_score -= OBJECTIVE_WEIGHT
 
         if branch_result == "key":
             exploration_score += 10
@@ -263,25 +292,56 @@ Final check:
 
     content = [{"type": "input_text", "text": prompt}]
 
-    response = client.responses.create(
-        model="gpt-4.1-mini",
-        temperature=0,
-        input=[
-            {
-                "role": "user",
-                "content": content,
-            }
-        ],
-    )
+    start_time = time.perf_counter()
 
-    raw = response.output_text.strip()
+    # Crashing led to me implementing API safety
+    try:
+        response = client.responses.create(
+            model="gpt-4.1-mini",
+            temperature=0,
+            timeout=20,
+            input=[
+                {
+                    "role": "user",
+                    "content": content,
+                }
+            ],
+        )
+        
+        decision_time = time.perf_counter() - start_time
+        print(f"AI decision request took {decision_time:.2f}s")
+        raw = response.output_text.strip()
+    except APITimeoutError:
+        decision_time = time.perf_counter() - start_time
+        print(f"OpenAI API timed out after {decision_time:.2f}s")
+        return None
+
+    except APIConnectionError as error:
+        decision_time = time.perf_counter() - start_time
+        print(f"OpenAI API connection error after {decision_time:.2f}s: {error}")
+        return None
+
+    except RateLimitError as error:
+        decision_time = time.perf_counter() - start_time
+        print(f"OpenAI API rate limit after {decision_time:.2f}s: {error}")
+        return None
+
+    except APIError as error:
+        decision_time = time.perf_counter() - start_time
+        print(f"OpenAI API error after {decision_time:.2f}s: {error}")
+        return None
+
+    except Exception as error:
+        decision_time = time.perf_counter() - start_time
+        print(f"Unexpected AI error after {decision_time:.2f}s: {error}")
+        return None
 
     try:
         decision = extract_json(raw)
     except json.JSONDecodeError:
         print(f"Bad AI response: {raw!r}")
-        return "take"
-
+        return None
+    
     action = decision.get("action")
 
     possible_moves = observation.get("possible_moves", {})

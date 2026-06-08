@@ -1224,8 +1224,11 @@ def main():
             
             action = Agent.choose_action(observation, goal, screenshot_path)
 
-            print(f"Agent chose : {action}")
-            run_action(action, cubes, cube_map, goal_cube)
+            if action is None:
+                print("Agent did not choose an action. Skipping this step.")
+            else:
+                print(f"Agent chose : {action}")
+                run_action(action, cubes, cube_map, goal_cube)
 
             agent_step_count += 1
             last_agent_step = current_time
