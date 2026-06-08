@@ -110,11 +110,13 @@ Rules:
 
 Backtracking and junction rules:
 1. Do not prefer a branch just because it reaches a junction in fewer steps.
-2. A junction after 1 step is often just the junction you came from.
-3. Treat a 1-step junction as backtracking if its target position is in recent_positions.
-4. Prefer a branch that reaches a new or further junction over a branch that immediately returns to a recent junction.
-5. If two branches both lead to junctions, prefer the one with lower target_visit_count unless it is clearly just backtracking.
-6. If a branch is dead_end, do not choose it while another safe branch reaches a junction, checkpoint, goal, stairs, ladder, or scan_limit_reached.
+2. A junction after 1 step is only bad if that move returns to a recent position.
+3. If the 1-step junction is not in recent_positions, it is a valid forward move.
+4. Never choose a recent-position move just because its branch has more steps.
+5. Treat a 1-step junction as backtracking if its target position is in recent_positions.
+6. Prefer a branch that reaches a new or further junction over a branch that immediately returns to a recent junction.
+7. If two branches both lead to junctions, prefer the one with lower target_visit_count unless it is clearly just backtracking.
+8. If a branch is dead_end, do not choose it while another safe branch reaches a junction, checkpoint, goal, stairs, ladder, or scan_limit_reached.
 
 Direction sanity:
 - north decreases y.
