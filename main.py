@@ -39,6 +39,7 @@ TOGGLE_HAZARD_SAFE_TIME = 10000 # 10s
 
 # Direction vectors used by the agent
 DIRECTION_TO_VECTOR = {
+    "stay": (0, 0), # Allows teleporting
     "north": (0, -1),
     "east": (1, 0),
     "south": (0, 1),
@@ -114,6 +115,7 @@ CHECKPOINT_LOCATIONS = [
 ]
 
 checkpoint_tracking_iterator = 0
+checkpoint_start = 0
 
 # Agent state
 agent = {
@@ -135,8 +137,17 @@ toggleable_hazard_safe_until = 0
 checkpoint_location = None
 
 def get_launch_options():
+    global checkpoint_start
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--ai", action="store_true", help="Run with OpenAI agent")
+    parser.add_argument("checkpoint", nargs="?", help="Starting checkpoint")
+
+    args = parser.parse_args()
+
+    if args.checkpoint.startswith("chk"):
+        checkpoint_start = int(args.checkpoint.replace("chk", ""))
+
     return parser.parse_args()
 
 # Gets the highest cube at a x y position
@@ -954,7 +965,7 @@ def print_branch_analysis(cube_map):
 
 # Runs the main pygame window
 def main():
-    global last_agent_step, checkpoint_location, agent_vision
+    global last_agent_step, checkpoint_location, agent_vision, checkpoint_start, checkpoint_tracking_iterator
     agent_vision = create_empty_agent_vision()
     # Setup and ai flag
     args = get_launch_options()
@@ -984,11 +995,20 @@ def main():
         sys.exit(1)
 
 
-    agent["x"] = checkpoint_location[0]
-    agent["y"] = checkpoint_location[1]
-    agent["z"] = checkpoint_location[2]
+    if checkpoint_start:
+        if checkpoint_start > 5: checkpoint_start = 5
+        checkpoint_tracking_iterator = checkpoint_start
+        for i in range(checkpoint_start):
+            agent["x"] = CHECKPOINT_LOCATIONS[i][0]
+            agent["y"] = CHECKPOINT_LOCATIONS[i][1]
+            agent["z"] = CHECKPOINT_LOCATIONS[i][2] + 1
+            move_in_direction("stay", cubes, cube_map)
+    else:
+        agent["x"] = checkpoint_location[0]
+        agent["y"] = checkpoint_location[1]
+        agent["z"] = checkpoint_location[2]
+    
     agent["alive"] = True
-
     agent_step_count = 0
     goal_cube = None
 
