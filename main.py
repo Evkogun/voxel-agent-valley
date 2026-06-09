@@ -7,23 +7,7 @@ import LevelLoader
 import argparse
 
 # TODO: 
-# add agent
-# finalise action space
-# add clear goal
-# add logging file
-# add proper README
-# create scoring system
-# finalise real level
-# reduce visual clutter further
-# find method of feeding visual data to ai
-# Add discord between visual and sensory input, make 1 more accurate than other at times
-
-# TODO Planning to expand this to potentially include:
-#  - Height difference
-#  - Move Possibility
-#  - Wider radius/reach or line of sight sensing
-#  - Objectives
-#  - Fall consequences
+# FIX DOOR DETECTED AS DEAD END
 
 
 # File Name
@@ -78,6 +62,11 @@ KEY_TYPES = {
     "key2",
 }
 
+KEY_LOCATION_ADJACENT = {
+    (8, -4, 1),
+    (5, 2, 1),
+}
+
 TYPE_TO_SYMBOL = {
     "spawn": "S",
     "checkpoint": "C",
@@ -105,17 +94,18 @@ AGENT_MAX_Z = 8
 
 # List of checkpoints as well as the goal for tracking
 CHECKPOINT_LOCATIONS = [
-    [-19, -11, 1],
-    [-1, -11, 1],
-    [18, -11, 1],
-    [2, -1, 1],
-    [-6, -3, 1],
+    (-19, -11, 1),
+    (-1, -11, 1),
+    (18, -11, 1),
+    (2, -1, 1),
+    (-6, -3, 1),
 
-    [-19, -1, 1], # goal
+    (-19, -1, 1), # goal
 ]
 
 checkpoint_tracking_iterator = 0
 checkpoint_start = 0
+keys_start = False
 
 # Agent state
 agent = {
@@ -137,20 +127,19 @@ toggleable_hazard_safe_until = 0
 checkpoint_location = None
 
 def get_launch_options():
-    global checkpoint_start
+    global checkpoint_start, keys_start
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--ai", action="store_true", help="Run with OpenAI agent")
-    parser.add_argument("checkpoint", nargs="?", help="Starting checkpoint")
+    parser.add_argument("--checkpoint", type=int, default=0, help="Starting checkpoint")
+    parser.add_argument("--keys", action="store_true", help="Start with keys in inventory")
 
     args = parser.parse_args()
+    checkpoint_start = args.checkpoint
+    keys_start = args.keys
 
-    if args.checkpoint is not None:
-        if args.checkpoint.startswith("chk"):
-            checkpoint_start = int(args.checkpoint.replace("chk", ""))
-        else:
-            checkpoint_start = int(args.checkpoint) # Safety
     return args
+
 
 # Gets the highest cube at a x y position
 # Used for finding the tile the agent is trying to move to and for top of ladder
@@ -1047,9 +1036,8 @@ def goal_completed(goal_cube):
 
 def distance_to_goal():
 
-    goal_x = CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][0]
-    goal_y = CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][1]
-    goal_z = CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator][2] + 1
+    goal_x, goal_y, goal_z = CHECKPOINT_LOCATIONS[checkpoint_tracking_iterator]
+    goal_z += 1
     # Giving the agent absolute distance should help it out
     return abs(agent["x"] - goal_x) + abs(agent["y"] - goal_y) + abs(agent["z"] - goal_z)
 
@@ -1213,6 +1201,12 @@ def main():
         pygame.quit()
         sys.exit(1)
 
+    if keys_start:
+        for key_location in KEY_LOCATION_ADJACENT:
+            agent["x"] = key_location[0]
+            agent["y"] = key_location[1]
+            agent["z"] = key_location[2] + 1
+            run_action("take", cubes, cube_map)
 
     if checkpoint_start:
         if checkpoint_start > 5: checkpoint_start = 5
