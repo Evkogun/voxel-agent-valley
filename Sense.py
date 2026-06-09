@@ -1,0 +1,319 @@
+from Config import *
+import Movement
+
+def setup(main_module):
+    global main
+    main = main_module
+
+def sense_direction(cube_map, direction):
+
+    dx, dy = DIRECTION_TO_VECTOR[direction]
+
+    target_x = main.agent["x"] + dx
+    target_y = main.agent["y"] + dy
+
+    current_tile = cube_map.get((main.agent["x"], main.agent["y"], main.agent["z"] - 1))
+    target_cube = Movement.get_cube_at_xy(cube_map, target_x, target_y)
+
+    if target_cube is None:
+        if Movement.can_safely_fall_from_current_tile(cube_map, target_x, target_y):
+            return "safe_fall"
+        return "empty"
+
+    if target_cube["type"] in KEY_TYPES:
+        return target_cube["type"]
+
+    if target_cube["type"] == "door":
+        if has_required_door_keys(cube_map, target_cube):
+            return "door"
+        return "door_blocked"
+
+    if not Movement.can_move_between(current_tile, target_cube):
+        return "blocked_height_change"
+
+    if target_cube["type"] == "toggleable_hazard":
+        if main.toggleable_hazards_are_safe():
+            return "toggleable_hazard_safe"
+        return "toggleable_hazard_active"
+    return target_cube["type"]
+
+def print_senses(cube_map):
+
+    print("")
+    print("Agent state")
+    print(f"Position: ({main.agent['x']}, {main.agent['y']}, {main.agent['z']})")
+    print(f"Alive: {main.agent['alive']}")
+    print(f"Inventory: {main.agent['inventory']}")
+
+    print("")
+    print("Sense")
+
+    for direction in DIRECTION_TO_VECTOR:
+        tile_type = sense_direction(cube_map, direction)
+        print(f"{direction}: {tile_type}")
+
+    print("")
+
+# Used to classify ambiguous tiles into format that informs the ai better
+def get_scan_tile_type(cube_map, cube):
+
+    if cube is None:
+        return "empty"
+
+    if cube["type"] in KEY_TYPES:
+        return cube["type"]
+
+    if cube["type"] == "door":
+        if has_required_door_keys(cube_map, cube):
+            return "door"
+        return "door_blocked"
+
+    if cube["type"] == "toggleable_hazard":
+        if toggleable_hazards_are_safe():
+            return "toggleable_hazard_safe"
+        return "toggleable_hazard_active"
+
+    return cube["type"]
+
+def get_safe_directions_from_position(cube_map, x, y, current_cube):
+
+    safe_directions = []
+
+    for direction, delta in DIRECTION_TO_VECTOR.items():
+        
+        if direction == "stay": continue
+
+        dx, dy = delta
+        target_x = x + dx
+        target_y = y + dy
+
+        target_cube = Movement.get_cube_at_xy(cube_map, target_x, target_y)
+        target_type = get_scan_tile_type(cube_map, target_cube)
+
+        if target_cube is None: continue
+
+        can_move = Movement.can_move_between(current_cube, target_cube)
+
+        if target_type == "door": can_move = True
+
+        if can_move:
+            safe_directions.append({
+                "direction": direction,
+                "tile": target_type,
+                "position": {
+                    "x": target_x,
+                    "y": target_y,
+                    "z": target_cube["z"] + 1,
+                },
+            })
+
+    return safe_directions
+
+# Checks if a path tile leads to a key that can be taken from that position
+def get_reachable_key_from_position(cube_map, x, y, standing_z):
+
+    for dx, dy in DIRECTION_TO_VECTOR.values():
+        key_cube = cube_map.get((x + dx, y + dy, standing_z))
+
+        if key_cube is not None and key_cube["type"] in KEY_TYPES:
+            return key_cube
+    return None
+
+
+def scan_branch(cube_map, start_direction):
+
+    dx, dy = DIRECTION_TO_VECTOR[start_direction]
+
+    current_x = main.agent["x"]
+    current_y = main.agent["y"]
+    previous_x = main.agent["x"]
+    previous_y = main.agent["y"]
+    previous_cube = cube_map.get((main.agent["x"], main.agent["y"], main.agent["z"] - 1))
+    path = []
+
+    for step in range(1, BRANCH_SCAN_LIMIT + 1):
+
+        current_x += dx
+        current_y += dy
+        current_cube = Movement.get_cube_at_xy(cube_map, current_x, current_y)
+        current_type = get_scan_tile_type(cube_map, current_cube)
+
+        path.append({"x": current_x, "y": current_y, "tile": current_type})
+
+        if current_cube is None:
+            return {
+                "start_direction": start_direction,
+                "result": "empty",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches empty space",
+            }
+
+        if current_type in KEY_TYPES:
+            return {
+                "start_direction": start_direction,
+                "result": "key",
+                "key_type": current_type,
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": f"branch reaches {current_type}",
+            }
+        
+        if current_type == "timed_pressure_plate":
+            return {
+                "start_direction": start_direction,
+                "result": "pressure_plate",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches a timed pressure plate",
+            }
+        
+        if current_type == "toggleable_hazard_active":
+            return {
+                "start_direction": start_direction,
+                "result": "needs_pressure_plate",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches an active toggleable hazard, so a pressure plate is needed",
+            }
+
+        reachable_key = get_reachable_key_from_position(
+            cube_map,
+            current_x,
+            current_y,
+            current_cube["z"] + 1
+        )
+
+        if reachable_key is not None:
+            return {
+                "start_direction": start_direction,
+                "result": "key",
+                "key_type": reachable_key["type"],
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "key_position": {
+                    "x": reachable_key["x"],
+                    "y": reachable_key["y"],
+                    "z": reachable_key["z"],
+                },
+                "path_preview": path,
+                "reason": f"branch reaches a path tile next to {reachable_key['type']}",
+            }
+
+        if current_type == "door_blocked":
+            return {
+                "start_direction": start_direction,
+                "result": "blocked",
+                "blocked_by": current_type,
+                "required_keys": get_door_required_keys(cube_map, current_cube),
+                "missing_keys": get_missing_door_keys(cube_map, current_cube),
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches a door but the agent is missing required keys",
+            }
+
+        if current_type == "door":
+            return {
+                "start_direction": start_direction,
+                "result": "door",
+                "required_keys": get_door_required_keys(cube_map, current_cube),
+                "missing_keys": [],
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches a door and the agent has all required keys",
+            }
+
+        if not Movement.can_move_between(previous_cube, current_cube):
+            return {
+                "start_direction": start_direction,
+                "result": "blocked",
+                "blocked_by": current_type,
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": f"branch is blocked by {current_type} or invalid height change",
+            }
+
+        if current_type == "checkpoint":
+            return {
+                "start_direction": start_direction,
+                "result": "checkpoint",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches a checkpoint",
+            }
+
+        if current_type == "goal":
+            return {
+                "start_direction": start_direction,
+                "result": "goal",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches the goal",
+            }
+
+        if current_type in SPECIAL_CONTINUATION_TYPES:
+            return {
+                "start_direction": start_direction,
+                "result": "special_continuation",
+                "special_tile": current_type,
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": f"branch reaches {current_type}, which is a valid continuation",
+            }
+
+        safe_directions = get_safe_directions_from_position(cube_map, current_x, current_y, current_cube)
+        onward_directions = []
+
+        for safe_direction in safe_directions:
+            target_position = safe_direction["position"]
+
+            if target_position["x"] == previous_x and target_position["y"] == previous_y: continue
+
+            onward_directions.append(safe_direction)
+
+        if len(onward_directions) == 0:
+            return {
+                "start_direction": start_direction,
+                "result": "dead_end",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch has no safe onward moves",
+            }
+
+        if len(onward_directions) >= 2:
+            return {
+                "start_direction": start_direction,
+                "result": "junction",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "onward_directions": onward_directions,
+                "path_preview": path,
+                "reason": "branch reaches another junction",
+            }
+
+        next_direction = onward_directions[0]["direction"]
+        dx, dy = DIRECTION_TO_VECTOR[next_direction]
+
+        previous_x = current_x
+        previous_y = current_y
+        previous_cube = current_cube
+
+    return {
+        "start_direction": start_direction,
+        "result": "scan_limit_reached",
+        "steps": BRANCH_SCAN_LIMIT,
+        "end_position": {"x": current_x, "y": current_y},
+        "path_preview": path,
+        "reason": "branch continued beyond scan limit",
+    }
