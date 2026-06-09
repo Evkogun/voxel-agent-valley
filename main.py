@@ -19,7 +19,11 @@ WIDTH = 600
 HEIGHT = 600
 
 # Timed hazard settings
-TOGGLE_HAZARD_SAFE_TIME = 10000 # 10s
+TOGGLE_HAZARD_SAFE_TIME = 50000 # 50s, the ai is slow
+PRESSURE_PLATE_BONUS = 30
+TOGGLEABLE_HAZARD_BONUS = 35
+
+temporary_objective = None
 
 # Direction vectors used by the agent
 DIRECTION_TO_VECTOR = {
@@ -42,6 +46,7 @@ BRANCH_SCAN_LIMIT = 30
 SPECIAL_CONTINUATION_TYPES = {
     "stairs",
     "ladder",
+    "ledge",
 }
 
 # Tiles the agent can normally stand on
@@ -63,8 +68,8 @@ KEY_TYPES = {
 }
 
 KEY_LOCATION_ADJACENT = {
-    (8, -4, 1),
-    (5, 2, 1),
+    (8, -4, 1): (5, -1, 3),
+    (5, 2, 1): (5, -1, 4),
 }
 
 TYPE_TO_SYMBOL = {
@@ -566,14 +571,19 @@ def get_safe_directions_from_position(cube_map, x, y, current_cube):
         if direction == "stay": continue
 
         dx, dy = delta
-
         target_x = x + dx
         target_y = y + dy
 
         target_cube = get_cube_at_xy(cube_map, target_x, target_y)
         target_type = get_scan_tile_type(cube_map, target_cube)
 
-        if can_move_between(current_cube, target_cube):
+        if target_cube is None: continue
+
+        can_move = can_move_between(current_cube, target_cube)
+
+        if target_type == "door": can_move = True
+
+        if can_move:
             safe_directions.append({
                 "direction": direction,
                 "tile": target_type,
@@ -626,6 +636,26 @@ def scan_branch(cube_map, start_direction):
                 "end_position": {"x": current_x, "y": current_y},
                 "path_preview": path,
                 "reason": f"branch reaches {current_type}",
+            }
+        
+        if current_type == "timed_pressure_plate":
+            return {
+                "start_direction": start_direction,
+                "result": "pressure_plate",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches a timed pressure plate",
+            }
+        
+        if current_type == "toggleable_hazard_active":
+            return {
+                "start_direction": start_direction,
+                "result": "needs_pressure_plate",
+                "steps": step,
+                "end_position": {"x": current_x, "y": current_y},
+                "path_preview": path,
+                "reason": "branch reaches an active toggleable hazard, so a pressure plate is needed",
             }
 
         reachable_key = get_reachable_key_from_position(
@@ -1202,11 +1232,16 @@ def main():
         sys.exit(1)
 
     if keys_start:
-        for key_location in KEY_LOCATION_ADJACENT:
+        for key_location, matching_key_location in KEY_LOCATION_ADJACENT.items():
             agent["x"] = key_location[0]
             agent["y"] = key_location[1]
             agent["z"] = key_location[2] + 1
             run_action("take", cubes, cube_map)
+
+            matching_key_cube = cube_map.get(matching_key_location)
+
+            if matching_key_cube is not None and matching_key_cube["type"] in KEY_TYPES:
+                remove_cube(cubes, cube_map, matching_key_cube)
 
     if checkpoint_start:
         if checkpoint_start > 5: checkpoint_start = 5

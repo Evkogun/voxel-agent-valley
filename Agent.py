@@ -10,6 +10,9 @@ SPECIAL_CONTINUATION_MEMORY = 5
 OBJECTIVE_WEIGHT = 2
 KEY_BONUS = 10
 UNLOCKED_DOOR_BONUS = 25
+SPECIAL_CONTINUATION_BONUS = 15
+PRESSURE_PLATE_BONUS = 30
+TOGGLEABLE_HAZARD_BONUS = 35
 
 # This is meant to speed up the prompting
 # Removing these allows the systematic abstraction of the agenst observation format
@@ -261,6 +264,18 @@ def choose_action(observation, goal, screenshot_path=None):
         if branch_result == "door":
             exploration_score += UNLOCKED_DOOR_BONUS
 
+        if branch_result == "special_continuation":
+            exploration_score += SPECIAL_CONTINUATION_BONUS
+
+        if branch_result == "pressure_plate":
+            exploration_score += PRESSURE_PLATE_BONUS
+
+        if branch_result == "needs_pressure_plate":
+            exploration_score -= 5
+
+        if target_tile == "toggleable_hazard_safe":
+            exploration_score += TOGGLEABLE_HAZARD_BONUS
+
         if branch_result in {"unsafe", "blocked", "empty"}:
             exploration_score = -999
 
@@ -313,22 +328,29 @@ Rules:
 5. Else if an adjacent tile is checkpoint, move into it.
 6. Use observation.branch_analysis as the main navigation guide.
 Prefer branch results in this order:
-goal, checkpoint, key, door, safe non-recent moves, special_continuation, junction, scan_limit_reached, then lowest target_visit_count.
+goal, checkpoint, key, door, pressure_plate, toggleable_hazard_safe, safe non-recent moves, special_continuation, junction, scan_limit_reached, then lowest target_visit_count.
 8. A move with target_recent true is usually backtracking.
 9. Do not choose a target_recent move if there is another safe move with target_recent false.
 10. special_continuation does not override target_recent.
 11. Avoid branch results: dead_end, empty, blocked, unsafe unless no better safe branch exists.
-12. Stairs and ladders are useful only when they lead to new progress. If recently visited and another safe route exists, avoid them.
+12. Stairs, ladders, and ledges are useful only when they lead to new progress. If recently visited and another safe route exists, avoid them.
 13. goal.direction is only a hint, not a command.
 14. It is allowed to temporarily increase goal distance to avoid a dead end or return to a junction.
 15. safe_fall means the adjacent space is empty, but the current ladder or ledge allows a controlled safe fall. Treat safe_fall as a valid special_continuation.
+
+Pressure plate and toggleable hazard rules:
+1. timed_pressure_plate activates toggleable hazards temporarily.
+2. If a branch reaches pressure_plate, strongly prefer it unless a goal, checkpoint, key, or door is clearly better.
+3. If a branch reaches needs_pressure_plate, avoid trying to cross that branch until a pressure plate has been activated.
+4. If an adjacent tile is toggleable_hazard_safe, crossing it is valuable and should be prioritised.
+5. Never move onto toggleable_hazard_active.
 
 Memory and branch rules:
 1. Use possible_moves[action].branch_recent_count to detect loops.
 2. Prefer branches with fewer recent tiles.
 3. exploration_score means how much of the branch seems new.
 4. When no goal or checkpoint is visible, prefer the safe branch with the highest exploration_score.
-5. If a branch has many recent tiles, treat it as already explored unless it reaches a goal, checkpoint, or necessary special continuation.
+5. If a branch has many recent tiles, treat it as already explored unless it reaches a goal, checkpoint, key, door, pressure_plate, or necessary special continuation.
 6. Do not choose a special_continuation branch if it mostly revisits recent tiles and another safe branch is newer.
 
 Key and door rules:
@@ -346,7 +368,7 @@ Backtracking and junction rules:
 5. Treat a 1-step junction as backtracking if its target position is in recent_positions.
 6. Prefer a branch that reaches a new or further junction over a branch that immediately returns to a recent junction.
 7. If two branches both lead to junctions, prefer the one with lower target_visit_count unless it is clearly just backtracking.
-8. If a branch is dead_end, do not choose it while another safe branch reaches a junction, checkpoint, goal, stairs, ladder, or scan_limit_reached.
+8. If a branch is dead_end, do not choose it while another safe branch reaches a junction, checkpoint, goal, stairs, ladder, ledge, pressure_plate, door, or scan_limit_reached.
 
 Direction sanity:
 - north decreases y.
@@ -370,10 +392,10 @@ Final check:
 - action must be in safe_actions unless action is take.
 - chosen_tile must match surroundings[chosen_direction].
 - never choose an unsafe tile.
-- do not choose a dead_end branch if there is a safe junction, checkpoint, goal, stairs, ladder, or scan_limit_reached branch.
+- do not choose a dead_end branch if there is a safe junction, checkpoint, goal, stairs, ladder, ledge, pressure_plate, door, or scan_limit_reached branch.
 - do not choose a one-step junction backtrack if there is another safe branch leading to a further junction.
 - if the chosen action has possible_moves[action].target_recent true and another safe action has target_recent false, choose the non-recent action instead.
-- do not choose recently visited stairs or ladders unless every other safe action is worse or unsafe.
+- do not choose recently visited stairs, ladders, or ledges unless every other safe action is worse or unsafe.
 - if two safe branches are otherwise similar, choose the one with the higher exploration_score.
 """
 
@@ -394,7 +416,6 @@ Final check:
                 }
             ],
         )
-        
         decision_time = time.perf_counter() - start_time
         print(f"AI decision request took {decision_time:.2f}s")
         raw = response.output_text.strip()
@@ -428,7 +449,6 @@ Final check:
     except json.JSONDecodeError:
         print(f"Bad AI response: {raw!r}")
         return None
-    
     action = decision.get("action")
 
     possible_moves = observation.get("possible_moves", {})
