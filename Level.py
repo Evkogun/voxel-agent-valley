@@ -5,6 +5,9 @@ import Render
 import Vision
 
 
+# Passes main.py into Level, allowing it to access the agent and shared level state
+# Repeated across multiple files that need access to agent and other main variables
+# Most commonly mentioned by movement, drawing and hazard logic that need main variables
 def setup(main_module):
     global main
     main = main_module
@@ -12,7 +15,7 @@ def setup(main_module):
 # Checks if toggleable hazards are currently safe against a global variable
 # Not safe until pressure plate funciton triggered
 def toggleable_hazards_are_safe():
-    return pygame.time.get_ticks() < toggleable_hazard_safe_until
+    return pygame.time.get_ticks() < main.toggleable_hazard_safe_until
 
 # Toggleable hazard colour change function
 def update_toggleable_hazard_colours(cubes):
@@ -30,7 +33,7 @@ def activate_pressure_plate(cubes):
     global toggleable_hazard_safe_until
 
     current_time = pygame.time.get_ticks()
-    toggleable_hazard_safe_until = current_time + TOGGLE_HAZARD_SAFE_TIME
+    main.toggleable_hazard_safe_until = current_time + TOGGLE_HAZARD_SAFE_TIME
 
     update_toggleable_hazard_colours(cubes)
     print("Pressure plate activated. Toggleable hazards are safe for 10 seconds")
@@ -46,6 +49,8 @@ def get_door_required_keys(cube_map, door_cube):
             required_keys.append(cube["type"])
     return required_keys
 
+# Checks which required door keys are not currently in the agent inventory
+# Used by door sensing, branch scanning and handle_door
 def get_missing_door_keys(cube_map, door_cube):
 
     missing_keys = []
@@ -55,9 +60,13 @@ def get_missing_door_keys(cube_map, door_cube):
             missing_keys.append(key)
     return missing_keys
 
+# Can a door be opened?
+# Mentioned by sense_direction and get_scan_tile_type when classifying doors
 def has_required_door_keys(cube_map, door_cube):
     return len(get_missing_door_keys(cube_map, door_cube)) == 0
 
+# Opens a door once the agent has the required keys, otherwise blocks movement
+# Used by Movement.move_in_direction when the target tile is a door
 def handle_door(cubes, cube_map, door_cube):
 
     door_x = door_cube["x"]

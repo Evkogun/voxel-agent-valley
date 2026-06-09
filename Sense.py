@@ -1,10 +1,13 @@
 from Config import *
 import Movement
+import Level
 
 def setup(main_module):
     global main
     main = main_module
 
+# Returns what the agent can sense one tile away in a given direction
+# print_senses and Vision.get_observations use this
 def sense_direction(cube_map, direction):
 
     dx, dy = DIRECTION_TO_VECTOR[direction]
@@ -24,7 +27,7 @@ def sense_direction(cube_map, direction):
         return target_cube["type"]
 
     if target_cube["type"] == "door":
-        if has_required_door_keys(cube_map, target_cube):
+        if Level.has_required_door_keys(cube_map, target_cube):
             return "door"
         return "door_blocked"
 
@@ -32,11 +35,13 @@ def sense_direction(cube_map, direction):
         return "blocked_height_change"
 
     if target_cube["type"] == "toggleable_hazard":
-        if main.toggleable_hazards_are_safe():
+        if Level.toggleable_hazards_are_safe():
             return "toggleable_hazard_safe"
         return "toggleable_hazard_active"
     return target_cube["type"]
 
+# Prints the agent state and immediate surroundings to the terminal (on button press)
+# Mentioned after player actions and AI actions in main.run_action
 def print_senses(cube_map):
 
     print("")
@@ -64,17 +69,19 @@ def get_scan_tile_type(cube_map, cube):
         return cube["type"]
 
     if cube["type"] == "door":
-        if has_required_door_keys(cube_map, cube):
+        if Level.has_required_door_keys(cube_map, cube):
             return "door"
         return "door_blocked"
 
     if cube["type"] == "toggleable_hazard":
-        if toggleable_hazards_are_safe():
+        if Level.toggleable_hazards_are_safe():
             return "toggleable_hazard_safe"
         return "toggleable_hazard_active"
 
     return cube["type"]
 
+# Finds which directions are safe from a scanned position rather than the agent position
+# Mostly mentioned inside scan_branch to detect dead ends and junctions
 def get_safe_directions_from_position(cube_map, x, y, current_cube):
 
     safe_directions = []
@@ -120,6 +127,8 @@ def get_reachable_key_from_position(cube_map, x, y, standing_z):
     return None
 
 
+# Looks ahead down one branch to classify whether it reaches a key, checkpoint, goal, door, junction or dead end
+# Used by branch analysis for AI observations
 def scan_branch(cube_map, start_direction):
 
     dx, dy = DIRECTION_TO_VECTOR[start_direction]
@@ -209,8 +218,8 @@ def scan_branch(cube_map, start_direction):
                 "start_direction": start_direction,
                 "result": "blocked",
                 "blocked_by": current_type,
-                "required_keys": get_door_required_keys(cube_map, current_cube),
-                "missing_keys": get_missing_door_keys(cube_map, current_cube),
+                "required_keys": Level.get_door_required_keys(cube_map, current_cube),
+                "missing_keys": Level.get_missing_door_keys(cube_map, current_cube),
                 "steps": step,
                 "end_position": {"x": current_x, "y": current_y},
                 "path_preview": path,
@@ -221,7 +230,7 @@ def scan_branch(cube_map, start_direction):
             return {
                 "start_direction": start_direction,
                 "result": "door",
-                "required_keys": get_door_required_keys(cube_map, current_cube),
+                "required_keys": Level.get_door_required_keys(cube_map, current_cube),
                 "missing_keys": [],
                 "steps": step,
                 "end_position": {"x": current_x, "y": current_y},
@@ -317,3 +326,108 @@ def scan_branch(cube_map, start_direction):
         "path_preview": path,
         "reason": "branch continued beyond scan limit",
     }
+
+def get_branch_analysis(cube_map):
+
+    branch_analysis = {}
+
+    for action, direction in MOVE_ACTION_TO_DIRECTION.items():
+        tile_type = sense_direction(cube_map, direction)
+        if tile_type == "safe_fall":
+            dx, dy = DIRECTION_TO_VECTOR[direction]
+
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "special_continuation",
+                "tile": tile_type,
+                "steps": 1,
+                "end_position": {
+                    "x": main.agent["x"] + dx,
+                    "y": main.agent["y"] + dy,
+                },
+                "path_preview": [
+                    {
+                        "x": main.agent["x"] + dx,
+                        "y": main.agent["y"] + dy,
+                        "tile": "safe_fall",
+                    }
+                ],
+                "reason": f"{direction} is a safe fall from the current ladder or ledge",
+            }
+            continue
+        if tile_type in KEY_TYPES:
+            dx, dy = DIRECTION_TO_VECTOR[direction]
+
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "key",
+                "tile": tile_type,
+                "steps": 1,
+                "end_position": {
+                    "x": main.agent["x"] + dx,
+                    "y": main.agent["y"] + dy,
+                },
+                "path_preview": [
+                    {
+                        "x": main.agent["x"] + dx,
+                        "y": main.agent["y"] + dy,
+                        "tile": tile_type,
+                    }
+                ],
+                "reason": f"{direction} has adjacent {tile_type}; use take",
+            }
+            continue
+
+        if tile_type == "door_blocked":
+            dx, dy = DIRECTION_TO_VECTOR[direction]
+            door_cube = Movement.get_cube_at_xy(cube_map, main.agent["x"] + dx, main.agent["y"] + dy)
+
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "blocked",
+                "tile": tile_type,
+                "required_keys": Level.get_door_required_keys(cube_map, door_cube),
+                "missing_keys": Level.get_missing_door_keys(cube_map, door_cube),
+                "steps": 1,
+                "reason": f"{direction} has a door but the agent is missing required keys",
+            }
+            continue
+
+        if tile_type == "door":
+            dx, dy = DIRECTION_TO_VECTOR[direction]
+            door_cube = Movement.get_cube_at_xy(cube_map, main.agent["x"] + dx, main.agent["y"] + dy)
+
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "door",
+                "tile": tile_type,
+                "required_keys": Level.get_door_required_keys(cube_map, door_cube),
+                "missing_keys": [],
+                "steps": 1,
+                "end_position": {
+                    "x": main.agent["x"] + dx,
+                    "y": main.agent["y"] + dy,
+                },
+                "path_preview": [
+                    {
+                        "x": main.agent["x"] + dx,
+                        "y": main.agent["y"] + dy,
+                        "tile": tile_type,
+                    }
+                ],
+                "reason": f"{direction} has a door and the agent has all required keys",
+            }
+            continue
+
+        if tile_type not in WALKABLE_TYPES and tile_type != "toggleable_hazard_safe":
+            branch_analysis[action] = {
+                "start_direction": direction,
+                "result": "unsafe",
+                "tile": tile_type,
+                "reason": f"cannot start branch because {direction} is {tile_type}",
+            }
+            continue
+
+        branch_analysis[action] = scan_branch(cube_map, direction)
+
+    return branch_analysis

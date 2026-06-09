@@ -11,6 +11,9 @@ from Config import * # Didn't want every constant to be preceded by Config.
 
 import argparse
 Movement.setup(sys.modules[__name__])
+Level.setup(sys.modules[__name__])
+Sense.setup(sys.modules[__name__])
+Vision.setup(sys.modules[__name__])
 
 # TODO: 
 # FIX DOOR DETECTED AS DEAD END
@@ -38,6 +41,8 @@ toggleable_hazard_safe_until = 0
 
 checkpoint_location = None
 
+# Reads command line flags for AI mode, checkpoint starting and key starting
+# Called at the start of main
 def get_launch_options():
     global checkpoint_start, keys_start
 
@@ -64,17 +69,17 @@ def set_respawn_point(x, y, z):
 def respawn_agent():
     global checkpoint_location
 
-    main.agent["x"] = checkpoint_location[0]
-    main.agent["y"] = checkpoint_location[1]
-    main.agent["z"] = checkpoint_location[2]
-    main.agent["alive"] = True
+    agent["x"] = checkpoint_location[0]
+    agent["y"] = checkpoint_location[1]
+    agent["z"] = checkpoint_location[2]
+    agent["alive"] = True
 
-    print(f"Respawned at ({main.agent['x']}, {main.agent['y']}, {main.agent['z']})")
+    print(f"Respawned at ({agent['x']}, {agent['y']}, {agent['z']})")
 
 # Kills the agent + respawn
 def kill_agent(reason):
 
-    main.agent["alive"] = False
+    agent["alive"] = False
 
     print("")
     print("Agent died")
@@ -96,6 +101,7 @@ def run_action(action, cubes, cube_map, goal_cube=None):
     Sense.print_senses(cube_map)
 
     if goal_cube is not None:
+        Vision.update_agent_vision(cubes)
         observation = Vision.get_observations(cube_map, goal_cube)
         print(f"Goal distance: {observation['goal']['distance']}, direction: {observation['goal']['direction']['general_direction']}")
 

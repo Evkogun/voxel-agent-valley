@@ -1,3 +1,4 @@
+import Level
 main = None
 
 # Passes main.py into movement, allowing access to internal variables
@@ -66,7 +67,7 @@ def can_enter_cube(cube):
     if cube["type"] == "hazard" or cube["type"] == "death_tile": return False
 
     if cube["type"] == "toggleable_hazard":
-        if main.toggleable_hazards_are_safe():
+        if Level.toggleable_hazards_are_safe():
             return True
         return False
 
@@ -140,7 +141,7 @@ def fall_from_ledge(cube_map, target_x, target_y):
 
     if fall_target["type"] == "toggleable_hazard":
         # Edge cases
-        if main.toggleable_hazards_are_safe():
+        if Level.toggleable_hazards_are_safe():
             move_agent_to_cube(fall_target)
             print("Landed on disabled toggleable hazard")
         else:
@@ -179,7 +180,7 @@ def move_in_direction(direction, cubes, cube_map):
 
     # Door logic
     if target_cube["type"] == "door":
-        main.handle_door(cubes, cube_map, target_cube)
+        Level.handle_door(cubes, cube_map, target_cube)
         return
 
     # Ladder logic
@@ -202,7 +203,7 @@ def move_in_direction(direction, cubes, cube_map):
 
     # Toggleable hazard logic
     if target_cube["type"] == "toggleable_hazard":
-        if main.toggleable_hazards_are_safe():
+        if Level.toggleable_hazards_are_safe():
             move_agent_to_cube(target_cube)
             print("Crossed disabled toggleable hazard")
         else:
@@ -223,7 +224,7 @@ def move_in_direction(direction, cubes, cube_map):
     # Pressure plate logic
     if target_cube["type"] == "timed_pressure_plate":
         move_agent_to_cube(target_cube)
-        main.activate_pressure_plate(cubes)
+        Level.activate_pressure_plate(cubes)
         return
 
     # Normal movement and checkpoint update logic
@@ -237,8 +238,9 @@ def move_in_direction(direction, cubes, cube_map):
                 main.checkpoint_location[1]
             )
 
-            old_checkpoint_cube["colour"] = (238, 238, 238)
-            old_checkpoint_cube["type"] = "path"
+            if old_checkpoint_cube is not None:
+                old_checkpoint_cube["colour"] = (238, 238, 238)
+                old_checkpoint_cube["type"] = "path"
 
             main.set_respawn_point(main.agent["x"], main.agent["y"], main.agent["z"])
             target_cube["colour"] = (238, 0, 0)
