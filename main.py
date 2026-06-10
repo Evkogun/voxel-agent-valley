@@ -7,16 +7,23 @@ import Movement
 import Vision
 import Sense
 import Level
+import BranchScan
 from Config import * # Didn't want every constant to be preceded by Config.
-
 import argparse
+
+# Less actual code changes
 Movement.setup(sys.modules[__name__])
 Level.setup(sys.modules[__name__])
 Sense.setup(sys.modules[__name__])
 Vision.setup(sys.modules[__name__])
+BranchScan.setup(sys.modules[__name__])
 
 # TODO: 
-# FIX DOOR DETECTED AS DEAD END
+# Finalise README
+# clean up log
+# The agent currently automatically does stuff like climb stairs and open doors
+# We could make the harder, so expanding the agents "action space"
+# adding an expanding map could be fun?
 
 checkpoint_tracking_iterator = 0
 checkpoint_start = 0

@@ -1,5 +1,6 @@
 from Config import *
 import Sense
+import BranchScan
 
 def setup(main_module):
     global main
@@ -122,7 +123,7 @@ def get_observations(cube_map, goal_cube):
         "alive": main.agent["alive"],
         "inventory": main.agent["inventory"],
         "surroundings": senses,
-        "branch_analysis": Sense.get_branch_analysis(cube_map),
+        "branch_analysis": BranchScan.get_branch_analysis(cube_map),
 
         "text_vision": {
             "vision_radius": AGENT_VISION_RADIUS,
