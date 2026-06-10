@@ -1,4 +1,4 @@
-import level.Render as Render
+from level import Render
 
 
 # Stores the voxel colours that are used as object types in a mapping table

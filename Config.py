@@ -1,7 +1,8 @@
 from pathlib import Path
 
 # File Name
-VOX_FILE = Path("TestBench.vox")
+BASE_DIR = Path(__file__).resolve().parent
+VOX_FILE = BASE_DIR / "TestBench.vox"
 LEVEL_SIZE = 40 # The expected size of the level in cubes. Used for scaling the render and centering the camera
 
 # Generic init values

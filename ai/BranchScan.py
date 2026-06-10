@@ -1,15 +1,11 @@
 from Config import *
-import core.Movement as Movement
-import core.Level as Level
-import ai.Sense as Sense
-
-def setup(main_module):
-    global main
-    main = main_module
+from level import Movement
+from level import Level
+from ai import Sense
 
 # Finds which directions are safe from a scanned position rather than the agent position
 # Mostly mentioned inside scan_branch to detect dead ends and junctions
-def get_safe_directions_from_position(cube_map, x, y, current_cube):
+def get_safe_directions_from_position(state, x, y, current_cube):
 
     safe_directions = []
 
@@ -21,12 +17,12 @@ def get_safe_directions_from_position(cube_map, x, y, current_cube):
         target_x = x + dx
         target_y = y + dy
 
-        target_cube = Movement.get_cube_at_xy(cube_map, target_x, target_y)
-        target_type = Sense.get_scan_tile_type(cube_map, target_cube)
+        target_cube = Movement.get_cube_at_xy(state, target_x, target_y)
+        target_type = Sense.get_scan_tile_type(state, target_cube)
 
         if target_cube is None: continue
 
-        can_move = Movement.can_move_between(current_cube, target_cube)
+        can_move = Movement.can_move_between(state, current_cube, target_cube)
 
         if target_type == "door": can_move = True
 
@@ -44,10 +40,10 @@ def get_safe_directions_from_position(cube_map, x, y, current_cube):
     return safe_directions
 
 # Checks if a path tile leads to a key that can be taken from that position
-def get_reachable_key_from_position(cube_map, x, y, standing_z):
+def get_reachable_key_from_position(state, x, y, standing_z):
 
     for dx, dy in DIRECTION_TO_VECTOR.values():
-        key_cube = cube_map.get((x + dx, y + dy, standing_z))
+        key_cube = state.cube_map.get((x + dx, y + dy, standing_z))
 
         if key_cube is not None and key_cube["type"] in KEY_TYPES:
             return key_cube
@@ -56,23 +52,23 @@ def get_reachable_key_from_position(cube_map, x, y, standing_z):
 
 # Looks ahead down one branch to classify whether it reaches a key, checkpoint, goal, door, junction or dead end
 # Used by branch analysis for AI observations
-def scan_branch(cube_map, start_direction):
+def scan_branch(state, start_direction):
 
     dx, dy = DIRECTION_TO_VECTOR[start_direction]
 
-    current_x = main.agent["x"]
-    current_y = main.agent["y"]
-    previous_x = main.agent["x"]
-    previous_y = main.agent["y"]
-    previous_cube = cube_map.get((main.agent["x"], main.agent["y"], main.agent["z"] - 1))
+    current_x = state.agent["x"]
+    current_y = state.agent["y"]
+    previous_x = state.agent["x"]
+    previous_y = state.agent["y"]
+    previous_cube = state.cube_map.get((state.agent["x"], state.agent["y"], state.agent["z"] - 1))
     path = []
 
     for step in range(1, BRANCH_SCAN_LIMIT + 1):
 
         current_x += dx
         current_y += dy
-        current_cube = Movement.get_cube_at_xy(cube_map, current_x, current_y)
-        current_type = Sense.get_scan_tile_type(cube_map, current_cube)
+        current_cube = Movement.get_cube_at_xy(state, current_x, current_y)
+        current_type = Sense.get_scan_tile_type(state, current_cube)
 
         path.append({"x": current_x, "y": current_y, "tile": current_type})
 
@@ -118,7 +114,7 @@ def scan_branch(cube_map, start_direction):
             }
 
         reachable_key = get_reachable_key_from_position(
-            cube_map,
+            state,
             current_x,
             current_y,
             current_cube["z"] + 1
@@ -145,8 +141,8 @@ def scan_branch(cube_map, start_direction):
                 "start_direction": start_direction,
                 "result": "blocked",
                 "blocked_by": current_type,
-                "required_keys": Level.get_door_required_keys(cube_map, current_cube),
-                "missing_keys": Level.get_missing_door_keys(cube_map, current_cube),
+                "required_keys": Level.get_door_required_keys(state, current_cube),
+                "missing_keys": Level.get_missing_door_keys(state, current_cube),
                 "steps": step,
                 "end_position": {"x": current_x, "y": current_y},
                 "path_preview": path,
@@ -157,7 +153,7 @@ def scan_branch(cube_map, start_direction):
             return {
                 "start_direction": start_direction,
                 "result": "door",
-                "required_keys": Level.get_door_required_keys(cube_map, current_cube),
+                "required_keys": Level.get_door_required_keys(state, current_cube),
                 "missing_keys": [],
                 "steps": step,
                 "end_position": {"x": current_x, "y": current_y},
@@ -165,7 +161,7 @@ def scan_branch(cube_map, start_direction):
                 "reason": "branch reaches a door and the agent has all required keys",
             }
 
-        if not Movement.can_move_between(previous_cube, current_cube):
+        if not Movement.can_move_between(state, previous_cube, current_cube):
             return {
                 "start_direction": start_direction,
                 "result": "blocked",
@@ -207,7 +203,7 @@ def scan_branch(cube_map, start_direction):
                 "reason": f"branch reaches {current_type}, which is a valid continuation",
             }
 
-        safe_directions = get_safe_directions_from_position(cube_map, current_x, current_y, current_cube)
+        safe_directions = get_safe_directions_from_position(state, current_x, current_y, current_cube)
         onward_directions = []
 
         for safe_direction in safe_directions:
@@ -256,12 +252,12 @@ def scan_branch(cube_map, start_direction):
 
 # Builds branch analysis for each movement action
 # Used by Vision.get_observations to give the AI short lookahead context
-def get_branch_analysis(cube_map):
+def get_branch_analysis(state):
 
     branch_analysis = {}
 
     for action, direction in MOVE_ACTION_TO_DIRECTION.items():
-        tile_type = Sense.sense_direction(cube_map, direction)
+        tile_type = Sense.sense_direction(state, direction)
         if tile_type == "safe_fall":
             dx, dy = DIRECTION_TO_VECTOR[direction]
 
@@ -271,13 +267,13 @@ def get_branch_analysis(cube_map):
                 "tile": tile_type,
                 "steps": 1,
                 "end_position": {
-                    "x": main.agent["x"] + dx,
-                    "y": main.agent["y"] + dy,
+                    "x": state.agent["x"] + dx,
+                    "y": state.agent["y"] + dy,
                 },
                 "path_preview": [
                     {
-                        "x": main.agent["x"] + dx,
-                        "y": main.agent["y"] + dy,
+                        "x": state.agent["x"] + dx,
+                        "y": state.agent["y"] + dy,
                         "tile": "safe_fall",
                     }
                 ],
@@ -295,18 +291,18 @@ def get_branch_analysis(cube_map):
                 "recommended_action": "take",
                 "steps": 0,
                 "end_position": {
-                    "x": main.agent["x"],
-                    "y": main.agent["y"],
+                    "x": state.agent["x"],
+                    "y": state.agent["y"],
                 },
                 "key_position": {
-                    "x": main.agent["x"] + dx,
-                    "y": main.agent["y"] + dy,
-                    "z": main.agent["z"],
+                    "x": state.agent["x"] + dx,
+                    "y": state.agent["y"] + dy,
+                    "z": state.agent["z"],
                 },
                 "path_preview": [
                     {
-                        "x": main.agent["x"] + dx,
-                        "y": main.agent["y"] + dy,
+                        "x": state.agent["x"] + dx,
+                        "y": state.agent["y"] + dy,
                         "tile": tile_type,
                     }
                 ],
@@ -316,14 +312,14 @@ def get_branch_analysis(cube_map):
 
         if tile_type == "door_blocked":
             dx, dy = DIRECTION_TO_VECTOR[direction]
-            door_cube = Movement.get_cube_at_xy(cube_map, main.agent["x"] + dx, main.agent["y"] + dy)
+            door_cube = Movement.get_cube_at_xy(state, state.agent["x"] + dx, state.agent["y"] + dy)
 
             branch_analysis[action] = {
                 "start_direction": direction,
                 "result": "blocked",
                 "tile": tile_type,
-                "required_keys": Level.get_door_required_keys(cube_map, door_cube),
-                "missing_keys": Level.get_missing_door_keys(cube_map, door_cube),
+                "required_keys": Level.get_door_required_keys(state, door_cube),
+                "missing_keys": Level.get_missing_door_keys(state, door_cube),
                 "steps": 1,
                 "reason": f"{direction} has a door but the agent is missing required keys",
             }
@@ -331,23 +327,23 @@ def get_branch_analysis(cube_map):
 
         if tile_type == "door":
             dx, dy = DIRECTION_TO_VECTOR[direction]
-            door_cube = Movement.get_cube_at_xy(cube_map, main.agent["x"] + dx, main.agent["y"] + dy)
+            door_cube = Movement.get_cube_at_xy(state, state.agent["x"] + dx, state.agent["y"] + dy)
 
             branch_analysis[action] = {
                 "start_direction": direction,
                 "result": "door",
                 "tile": tile_type,
-                "required_keys": Level.get_door_required_keys(cube_map, door_cube),
+                "required_keys": Level.get_door_required_keys(state, door_cube),
                 "missing_keys": [],
                 "steps": 1,
                 "end_position": {
-                    "x": main.agent["x"] + dx,
-                    "y": main.agent["y"] + dy,
+                    "x": state.agent["x"] + dx,
+                    "y": state.agent["y"] + dy,
                 },
                 "path_preview": [
                     {
-                        "x": main.agent["x"] + dx,
-                        "y": main.agent["y"] + dy,
+                        "x": state.agent["x"] + dx,
+                        "y": state.agent["y"] + dy,
                         "tile": tile_type,
                     }
                 ],
@@ -364,6 +360,6 @@ def get_branch_analysis(cube_map):
             }
             continue
 
-        branch_analysis[action] = scan_branch(cube_map, direction)
+        branch_analysis[action] = scan_branch(state, direction)
 
     return branch_analysis
