@@ -1,6 +1,6 @@
 from Config import *
-import Sense
-import BranchScan
+import ai.Sense as Sense
+import ai.BranchScan as BranchScan
 import Planner
 
 def setup(main_module):

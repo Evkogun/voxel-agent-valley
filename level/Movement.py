@@ -1,4 +1,4 @@
-import Level
+import core.Level as Level
 main = None
 
 # Passes main.py into movement, allowing access to internal variables

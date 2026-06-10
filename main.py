@@ -1,13 +1,13 @@
 import pygame
 import sys
 
-import Render
-import LevelLoader
-import Movement
-import Vision
-import Sense
-import Level
-import BranchScan
+import level.Render as Render
+import level.LevelLoader as LevelLoader
+import core.Movement as Movement
+import ai.Vision as Vision
+import ai.Sense as Sense
+import core.Level as Level
+import ai.BranchScan as BranchScan
 from Config import * # Didn't want every constant to be preceded by Config.
 import argparse
 import Planner
@@ -138,9 +138,9 @@ def main():
     ai_observation_tier = args.tier
     ai_mode = args.ai
 
-    Agent = None
+    ai.Agent = None
     if args.ai:
-        import Agent
+        import ai.Agent as Agent
 
 
     pygame.init()

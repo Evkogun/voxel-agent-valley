@@ -1,7 +1,7 @@
 from Config import *
-import Movement
-import Level
-import Sense
+import core.Movement as Movement
+import core.Level as Level
+import ai.Sense as Sense
 
 def setup(main_module):
     global main

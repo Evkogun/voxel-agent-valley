@@ -1,8 +1,8 @@
 from Config import *
 import pygame
-import Movement
-import Render
-import Vision
+import core.Movement as Movement
+import level.Render as Render
+import ai.Vision as Vision
 
 
 # Passes main.py into Level, allowing it to access the agent and shared level state

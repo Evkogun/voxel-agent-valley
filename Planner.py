@@ -1,8 +1,8 @@
 from collections import deque
 from Config import *
-import Movement
-import Level
-import Sense
+import core.Movement as Movement
+import core.Level as Level
+import ai.Sense as Sense
 
 last_agent_position = None
 previous_agent_position = None

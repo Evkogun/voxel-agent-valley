@@ -1,6 +1,6 @@
 from Config import *
-import Movement
-import Level
+import core.Movement as Movement
+import core.Level as Level
 
 def setup(main_module):
     global main
