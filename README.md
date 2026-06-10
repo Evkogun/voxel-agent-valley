@@ -12,6 +12,9 @@ pip install pygame openai
 Set OpenAI API key on Windows PowerShell:
 $env OPENAI_API_KEY="api_key"
 
+mac
+export OPENAI_API_KEY="api_key"
+
 python main.py	    Runs the voxel world in manual mode.
 --ai            	Runs the world with the LLM agent choosing actions.
 --tier 0	        Sends only basic surroundings/action information.
