@@ -289,12 +289,19 @@ def get_branch_analysis(cube_map):
 
             branch_analysis[action] = {
                 "start_direction": direction,
-                "result": "key",
+                "result": "take_key_immediately",
                 "tile": tile_type,
-                "steps": 1,
+                "key_type": tile_type,
+                "recommended_action": "take",
+                "steps": 0,
                 "end_position": {
+                    "x": main.agent["x"],
+                    "y": main.agent["y"],
+                },
+                "key_position": {
                     "x": main.agent["x"] + dx,
                     "y": main.agent["y"] + dy,
+                    "z": main.agent["z"],
                 },
                 "path_preview": [
                     {
@@ -303,7 +310,7 @@ def get_branch_analysis(cube_map):
                         "tile": tile_type,
                     }
                 ],
-                "reason": f"{direction} has adjacent {tile_type}; use take",
+                "reason": f"{direction} has adjacent {tile_type}; choose take immediately, do not move",
             }
             continue
 

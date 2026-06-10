@@ -12,17 +12,18 @@ def setup(main_module):
 # Used for finding the tile the agent is trying to move to and for top of ladder
 # Used heavily in its get_top_cube form for ladders and sensing
 # Used in its alternative format for door unlocking logic
-def get_cube_at_xy(cube_map, x, y, top_count=None):
+def get_cube_at_xy(cube_map, x, y, top_count = None, standing_z = None):
+
+    if standing_z is None: standing_z = main.agent["z"]
 
     matching_cubes = []
-    # Horrifically inefficient, levels are small but if given time this will be optimised
+    # Linear scan is acceptable for the current level size
     for cube_position in cube_map:
 
         cube_x = cube_position[0]
         cube_y = cube_position[1]
 
-        if cube_x == x and cube_y == y:
-            matching_cubes.append(cube_map[cube_position])
+        if cube_x == x and cube_y == y: matching_cubes.append(cube_map[cube_position])
 
     matching_cubes.sort(
         key=lambda cube: cube["z"],
@@ -32,19 +33,18 @@ def get_cube_at_xy(cube_map, x, y, top_count=None):
     # Gets cubes at same level or 1 below agent
     if top_count is None:
         for cube in matching_cubes:
-            if cube["z"] == main.agent["z"]:
+            if cube["z"] == standing_z:
                 if matching_cubes and matching_cubes[0]["type"] == "ladder" and cube["type"] == "ladder":
                     return matching_cubes[0] # Finds tops of ladders, check is in edge case of scanning a tile below a ladder
                 return cube
 
         for cube in matching_cubes:
-            if cube["z"] == main.agent["z"] - 1:
+            if cube["z"] == standing_z - 1:
                 return cube
-            if cube["z"] == main.agent["z"] - 2:
+            if cube["z"] == standing_z - 2:
                 return cube # for stairs going downward
         return None
     return matching_cubes[:top_count]
-
 
 # Removes a cube from both the list and the map
 # Used to remove door and key tiles

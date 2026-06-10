@@ -1,6 +1,7 @@
 from Config import *
 import Sense
 import BranchScan
+import Planner
 
 def setup(main_module):
     global main
@@ -101,10 +102,6 @@ def direction_to_goal():
         }
     }
 
-
-
-
-
 # Main information file to give the ai/transfer info to Agent.py
 def get_observations(cube_map, goal_cube):
 
@@ -124,6 +121,7 @@ def get_observations(cube_map, goal_cube):
         "inventory": main.agent["inventory"],
         "surroundings": senses,
         "branch_analysis": BranchScan.get_branch_analysis(cube_map),
+        "bfs_analysis": Planner.get_bfs_analysis(cube_map),
 
         "text_vision": {
             "vision_radius": AGENT_VISION_RADIUS,

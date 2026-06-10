@@ -14,18 +14,17 @@ SPECIAL_CONTINUATION_BONUS = 15
 PRESSURE_PLATE_BONUS = 30
 TOGGLEABLE_HAZARD_BONUS = 35
 
-# This is meant to speed up the prompting
-# Removing these allows the systematic abstraction of the agenst observation format
 SEND_GOAL_TO_AI = True
-SEND_POSITION_TO_AI = True
-SEND_SURROUNDINGS_TO_AI = True
-SEND_INVENTORY_TO_AI = True
-SEND_GOAL_INFO_TO_AI = True
 SEND_VALID_ACTIONS_TO_AI = True
-SEND_BRANCH_ANALYSIS_TO_AI = True
-SEND_POSSIBLE_MOVES_TO_AI = True
-SEND_RECENT_POSITIONS_TO_AI = False
+SEND_POSITION_TO_AI = False
+SEND_SURROUNDINGS_TO_AI = True
+SEND_INVENTORY_TO_AI = False
+SEND_GOAL_INFO_TO_AI = False
 SEND_TEXT_VISION_TO_AI = False
+SEND_BRANCH_ANALYSIS_TO_AI = False
+SEND_POSSIBLE_MOVES_TO_AI = False
+SEND_RECENT_POSITIONS_TO_AI = False
+SEND_BFS_ANALYSIS_TO_AI = False
 SEND_OTHER_TO_AI = False
 
 VALID_ACTIONS = {
@@ -65,8 +64,80 @@ KEY_TILES = {
     "key2",
 }
 
+def set_observation_level_flags(observation_tier):
+    global SEND_GOAL_TO_AI
+    global SEND_VALID_ACTIONS_TO_AI
+    global SEND_POSITION_TO_AI
+    global SEND_SURROUNDINGS_TO_AI
+    global SEND_INVENTORY_TO_AI
+    global SEND_GOAL_INFO_TO_AI
+    global SEND_TEXT_VISION_TO_AI
+    global SEND_BRANCH_ANALYSIS_TO_AI
+    global SEND_POSSIBLE_MOVES_TO_AI
+    global SEND_RECENT_POSITIONS_TO_AI
+    global SEND_BFS_ANALYSIS_TO_AI
+    global SEND_OTHER_TO_AI
+
+    # Reset everything first
+    SEND_GOAL_TO_AI = True
+    SEND_VALID_ACTIONS_TO_AI = True
+
+    SEND_POSITION_TO_AI = False
+    SEND_SURROUNDINGS_TO_AI = False
+    SEND_INVENTORY_TO_AI = False
+    SEND_GOAL_INFO_TO_AI = False
+
+    SEND_TEXT_VISION_TO_AI = False
+
+    SEND_BRANCH_ANALYSIS_TO_AI = False
+    SEND_POSSIBLE_MOVES_TO_AI = False
+    SEND_RECENT_POSITIONS_TO_AI = False
+
+    SEND_BFS_ANALYSIS_TO_AI = False
+
+    SEND_OTHER_TO_AI = False
+
+    # Tier 0: task and action basics
+    if observation_tier == 0:
+        SEND_SURROUNDINGS_TO_AI = True
+        return
+
+    # Tier 1: immediate agent state
+    if observation_tier == 1:
+        SEND_POSITION_TO_AI = True
+        SEND_SURROUNDINGS_TO_AI = True
+        SEND_INVENTORY_TO_AI = True
+        SEND_GOAL_INFO_TO_AI = True
+        return
+
+    # Tier 2: local symbolic map only
+    if observation_tier == 2:
+        SEND_INVENTORY_TO_AI = True
+        SEND_GOAL_INFO_TO_AI = True
+        SEND_TEXT_VISION_TO_AI = True
+        return
+
+    # Tier 3: branch/memory only
+    if observation_tier == 3:
+        SEND_INVENTORY_TO_AI = True
+        SEND_GOAL_INFO_TO_AI = True
+        SEND_BRANCH_ANALYSIS_TO_AI = True
+        SEND_POSSIBLE_MOVES_TO_AI = True
+        SEND_RECENT_POSITIONS_TO_AI = True
+        return
+
+    # Tier 4: BFS only
+    if observation_tier == 4:
+        SEND_INVENTORY_TO_AI = True
+        SEND_GOAL_INFO_TO_AI = True
+        SEND_BFS_ANALYSIS_TO_AI = True
+        return
+
 def print_move_memory_analysis(observation):
     if not DEBUG_MEMORY:
+        return
+
+    if not SEND_POSSIBLE_MOVES_TO_AI:
         return
 
     print("")
@@ -85,9 +156,13 @@ def print_move_memory_analysis(observation):
     print("-" * 105)
 
     for action, move in observation["possible_moves"].items():
-        branch = observation["branch_analysis"].get(action, {})
-        result = branch.get("result", "unknown")
-        steps = branch.get("steps", "-")
+        if SEND_BRANCH_ANALYSIS_TO_AI:
+            branch = observation.get("branch_analysis", {}).get(action, {})
+            result = branch.get("result", "unknown")
+            steps = branch.get("steps", "-")
+        else:
+            result = "-"
+            steps = "-"
 
         print(
             f"{action:<12} "
@@ -103,74 +178,121 @@ def print_move_memory_analysis(observation):
 
     print("")
 
-
 def print_final_move_memory(action, possible_moves):
-    if not DEBUG_MEMORY or action not in possible_moves:
+    if not DEBUG_MEMORY or not SEND_POSSIBLE_MOVES_TO_AI or action not in possible_moves:
         return
 
     move = possible_moves[action]
 
     print(
         f"Final memory choice: {action} | "
-        f"tile={move['target_tile']} | "
-        f"recent={move['target_recent']} | "
-        f"visits={move['target_visit_count']} | "
-        f"branch_recent={move['branch_recent_count']} | "
-        f"branch_length={move['branch_length']} | "
-        f"score={move['exploration_score']}"
+        f"tile = {move['target_tile']} | "
+        f"recent = {move['target_recent']} | "
+        f"visits = {move['target_visit_count']} | "
+        f"branch_recent = {move['branch_recent_count']} | "
+        f"branch_length = {move['branch_length']} | "
+        f"score = {move['exploration_score']}"
     )
 
+def print_bfs_analysis(observation):
+    if not DEBUG_MEMORY: return
+    if not SEND_BFS_ANALYSIS_TO_AI: return
+    if "bfs_analysis" not in observation: return
 
-def build_ai_observation(observation):
+    print("")
+    print("BFS analysis")
+    print(
+        f"{'action':<12} "
+        f"{'safe':<6} "
+        f"{'result':<22} "
+        f"{'steps':<5} "
+        f"{'tiles':<6} "
+        f"{'findings':<40}"
+    )
+    print("-" * 95)
+
+    for action, analysis in observation.get("bfs_analysis", {}).items():
+        findings_text = ""
+
+        for finding in analysis.get("findings", []):
+            findings_text += f"{finding['result']} ({finding['steps']}), "
+
+        findings_text = findings_text.rstrip(", ")
+
+        print(
+            f"{action:<12} "
+            f"{str(analysis.get('safe', '-')):<6} "
+            f"{str(analysis.get('result', '-')):<22} "
+            f"{str(analysis.get('steps', '-')):<5} "
+            f"{str(analysis.get('reachable_tiles', '-')):<6} "
+            f"{findings_text:<40}"
+        )
+
+    print("")
+
+def get_take_analysis(observation):
+    for direction, tile in observation.get("surroundings", {}).items():
+        if tile in KEY_TILES:
+            return {
+                "available": True,
+                "target": tile,
+                "direction": direction,
+                "recommended_action": "take",
+                "reason": f"{tile} is adjacent at surroundings.{direction}, so choose take instead of moving"
+            }
+
+    return {
+        "available": False
+    }
+
+def build_ai_observation(observation, observation_tier):
     ai_observation = {}
-    used_keys = set()
 
     if SEND_POSITION_TO_AI and "position" in observation:
         ai_observation["position"] = observation["position"]
-        used_keys.add("position")
 
     if SEND_SURROUNDINGS_TO_AI and "surroundings" in observation:
         ai_observation["surroundings"] = observation["surroundings"]
-        used_keys.add("surroundings")
 
     if SEND_INVENTORY_TO_AI and "inventory" in observation:
         ai_observation["inventory"] = observation["inventory"]
-        used_keys.add("inventory")
 
     if SEND_GOAL_INFO_TO_AI and "goal" in observation:
         ai_observation["goal"] = observation["goal"]
-        used_keys.add("goal")
 
     if SEND_VALID_ACTIONS_TO_AI and "valid_actions" in observation:
         ai_observation["valid_actions"] = observation["valid_actions"]
-        used_keys.add("valid_actions")
 
-    if SEND_BRANCH_ANALYSIS_TO_AI and "branch_analysis" in observation:
-        ai_observation["branch_analysis"] = observation["branch_analysis"]
-        used_keys.add("branch_analysis")
-
-    if SEND_POSSIBLE_MOVES_TO_AI and "possible_moves" in observation:
-        ai_observation["possible_moves"] = observation["possible_moves"]
-        used_keys.add("possible_moves")
-
-    if SEND_RECENT_POSITIONS_TO_AI and "recent_positions" in observation:
-        ai_observation["recent_positions"] = observation["recent_positions"]
-        used_keys.add("recent_positions")
+    if "take_analysis" in observation:
+        ai_observation["take_analysis"] = observation["take_analysis"]
 
     if SEND_TEXT_VISION_TO_AI and "text_vision" in observation:
         ai_observation["text_vision"] = observation["text_vision"]
-        used_keys.add("text_vision")
+
+    if SEND_BRANCH_ANALYSIS_TO_AI and "branch_analysis" in observation:
+        ai_observation["branch_analysis"] = observation["branch_analysis"]
+
+    if SEND_POSSIBLE_MOVES_TO_AI and "possible_moves" in observation:
+        ai_observation["possible_moves"] = observation["possible_moves"]
+
+    if SEND_RECENT_POSITIONS_TO_AI and "recent_positions" in observation:
+        ai_observation["recent_positions"] = observation["recent_positions"]
+
+    if SEND_BFS_ANALYSIS_TO_AI and "bfs_analysis" in observation:
+        ai_observation["bfs_analysis"] = observation["bfs_analysis"]
 
     if SEND_OTHER_TO_AI:
-        for key, value in observation.items():
-            if key not in used_keys and key != "text_vision":
-                ai_observation[key] = value
+        for key in ["alive", "goal_reached"]:
+            if key in observation:
+                ai_observation[key] = observation[key]
 
     return ai_observation
 
 
-def choose_action(observation, goal, screenshot_path=None):
+def choose_action(observation, goal, screenshot_path=None, observation_tier=4):
     global recent_positions, visited_counts
+    
+    set_observation_level_flags(observation_tier)
 
     observation["recent_positions"] = recent_positions[-MEMORY:]
 
@@ -224,7 +346,7 @@ def choose_action(observation, goal, screenshot_path=None):
             target_position["y"],
         )
 
-        branch = observation["branch_analysis"].get(action, {})
+        branch = observation.get("branch_analysis", {}).get(action, {})
         branch_recent_count = count_recent_tiles_in_branch(branch)
         branch_length = len(branch.get("path_preview", []))
 
@@ -297,107 +419,33 @@ def choose_action(observation, goal, screenshot_path=None):
             "exploration_score": exploration_score,
         }
 
-    print_move_memory_analysis(observation)
+    observation["take_analysis"] = get_take_analysis(observation)
 
-    ai_observation = build_ai_observation(observation)
+    if SEND_POSSIBLE_MOVES_TO_AI:
+        print_move_memory_analysis(observation)
+
+    if SEND_BFS_ANALYSIS_TO_AI:
+        print_bfs_analysis(observation)
+
+    ai_observation = build_ai_observation(observation, observation_tier)
     goal_for_ai = goal if SEND_GOAL_TO_AI else "Not sent"
 
     prompt = f"""
-You are an agent in a small voxel world.
+        You are an agent in a small voxel world.
 
-Goal:
-{goal_for_ai}
+        Observation tier:
+        {observation_tier}
 
-Observation:
-{json.dumps(ai_observation)}
+        Goal:
+        {goal_for_ai}
 
-Choose exactly one action:
-move_north, move_east, move_south, move_west, take.
+        Observation:
+        {json.dumps(ai_observation)}
 
-Action mapping:
-move_north -> surroundings.north
-move_east -> surroundings.east
-move_south -> surroundings.south
-move_west -> surroundings.west
+        {get_base_prompt_rules()}
 
-Rules:
-1. Safety is absolute.
-2. Only move into: path, spawn, checkpoint, goal, stairs, ladder, ledge, safe_fall, timed_pressure_plate, toggleable_hazard_safe, door.
-3. Never move into: death_tile, hazard, empty, toggleable_hazard_active, door_blocked, unknown.
-4. If an adjacent tile is goal, move into it.
-5. Else if an adjacent tile is checkpoint, move into it.
-6. Use observation.branch_analysis as the main navigation guide.
-Prefer branch results in this order:
-goal, checkpoint, key, door, pressure_plate, toggleable_hazard_safe, safe non-recent moves, special_continuation, junction, scan_limit_reached, then lowest target_visit_count.
-8. A move with target_recent true is usually backtracking.
-9. Do not choose a target_recent move if there is another safe move with target_recent false.
-10. special_continuation does not override target_recent.
-11. Avoid branch results: dead_end, empty, blocked, unsafe unless no better safe branch exists.
-12. Stairs, ladders, and ledges are useful only when they lead to new progress. If recently visited and another safe route exists, avoid them.
-13. goal.direction is only a hint, not a command.
-14. It is allowed to temporarily increase goal distance to avoid a dead end or return to a junction.
-15. safe_fall means the adjacent space is empty, but the current ladder or ledge allows a controlled safe fall. Treat safe_fall as a valid special_continuation.
-
-Pressure plate and toggleable hazard rules:
-1. timed_pressure_plate activates toggleable hazards temporarily.
-2. If a branch reaches pressure_plate, strongly prefer it unless a goal, checkpoint, key, or door is clearly better.
-3. If a branch reaches needs_pressure_plate, avoid trying to cross that branch until a pressure plate has been activated.
-4. If an adjacent tile is toggleable_hazard_safe, crossing it is valuable and should be prioritised.
-5. Never move onto toggleable_hazard_active.
-
-Memory and branch rules:
-1. Use possible_moves[action].branch_recent_count to detect loops.
-2. Prefer branches with fewer recent tiles.
-3. exploration_score means how much of the branch seems new.
-4. When no goal or checkpoint is visible, prefer the safe branch with the highest exploration_score.
-5. If a branch has many recent tiles, treat it as already explored unless it reaches a goal, checkpoint, key, door, pressure_plate, or necessary special continuation.
-6. Do not choose a special_continuation branch if it mostly revisits recent tiles and another safe branch is newer.
-
-Key and door rules:
-1. If any adjacent tile is key1 or key2, choose take immediately.
-2. Branches that reach keys are valuable and should be prioritised.
-3. Avoid door_blocked; it means the agent is missing the required key or keys.
-4. door means the agent has all required keys, so it is very valuable and should be prioritised highly.
-5. Moving into a door may open it rather than moving through it immediately.
-
-Backtracking and junction rules:
-1. Do not prefer a branch just because it reaches a junction in fewer steps.
-2. A junction after 1 step is only bad if that move returns to a recent position.
-3. If the 1-step junction is not in recent_positions, it is a valid forward move.
-4. Never choose a recent-position move just because its branch has more steps.
-5. Treat a 1-step junction as backtracking if its target position is in recent_positions.
-6. Prefer a branch that reaches a new or further junction over a branch that immediately returns to a recent junction.
-7. If two branches both lead to junctions, prefer the one with lower target_visit_count unless it is clearly just backtracking.
-8. If a branch is dead_end, do not choose it while another safe branch reaches a junction, checkpoint, goal, stairs, ladder, ledge, pressure_plate, door, or scan_limit_reached.
-
-Direction sanity:
-- north decreases y.
-- south increases y.
-- east increases x.
-- west decreases x.
-- Never claim north helps with a south target.
-- Never claim west helps with an east target.
-
-Return JSON only in this exact format:
-{{
-    "safe_actions": ["move_north", "move_east"],
-    "unsafe_actions": ["move_south", "move_west"],
-    "action": "move_north",
-    "chosen_direction": "north",
-    "chosen_tile": "path",
-    "reason": "brief reason using surroundings, branch_analysis, target_visit_count, target_recent, branch_recent_count, exploration_score, and whether the move is backtracking"
-}}
-
-Final check:
-- action must be in safe_actions unless action is take.
-- chosen_tile must match surroundings[chosen_direction].
-- never choose an unsafe tile.
-- do not choose a dead_end branch if there is a safe junction, checkpoint, goal, stairs, ladder, ledge, pressure_plate, door, or scan_limit_reached branch.
-- do not choose a one-step junction backtrack if there is another safe branch leading to a further junction.
-- if the chosen action has possible_moves[action].target_recent true and another safe action has target_recent false, choose the non-recent action instead.
-- do not choose recently visited stairs, ladders, or ledges unless every other safe action is worse or unsafe.
-- if two safe branches are otherwise similar, choose the one with the higher exploration_score.
-"""
+        {get_tier_prompt_rules(observation_tier)}
+    """
 
     content = [{"type": "input_text", "text": prompt}]
 
@@ -460,7 +508,7 @@ Final check:
     chosen_branch = branch_analysis.get(action, {})
     chosen_result = chosen_branch.get("result")
 
-    if chosen_recent or chosen_score <= 0:
+    if SEND_POSSIBLE_MOVES_TO_AI and (chosen_recent or chosen_score <= 0):
         best_alternative_action = None
         best_alternative_score = -1
 
@@ -517,3 +565,123 @@ def extract_json(raw):
         raise json.JSONDecodeError("No JSON object found", raw, 0)
 
     return json.loads(raw[start:end + 1])
+
+def get_base_prompt_rules():
+    return """
+        Choose exactly one action:
+        move_north, move_east, move_south, move_west, take.
+
+        Action mapping:
+        move_north -> surroundings.north
+        move_east -> surroundings.east
+        move_south -> surroundings.south
+        move_west -> surroundings.west
+
+        Universal rules:
+        1. Safety is absolute.
+        2. Only move into: path, spawn, checkpoint, goal, stairs, ladder, ledge, safe_fall, timed_pressure_plate, toggleable_hazard_safe, door.
+        3. Never move into: death_tile, hazard, empty, toggleable_hazard_active, door_blocked, unknown.
+        4. If observation.take_analysis.available is true, choose action "take".
+        5. take is not a movement action. Do not choose move_north, move_east, move_south, or move_west to collect an adjacent key.
+        6. If an adjacent tile is goal, move into it.
+        7. Else if an adjacent tile is checkpoint, move into it.
+        8. goal.direction is only a hint, not a command.
+        9. It is allowed to temporarily increase goal distance to avoid a dead end or reach a useful objective.
+
+        Direction sanity:
+        - north decreases y.
+        - south increases y.
+        - east increases x.
+        - west decreases x.
+        - Never claim north helps with a south target.
+        - Never claim west helps with an east target.
+
+        Return JSON only in this exact format:
+        {{
+        "action": "move_north",
+        "chosen_tile": "path",
+        "reason": "brief reason"
+        }}
+"""
+
+
+def get_tier_prompt_rules(observation_tier):
+    if observation_tier == 0:
+        return """
+            Tier 0 rules:
+            You only have immediate surroundings and take_analysis.
+            take_analysis has priority over movement.
+            If take_analysis.available is true, choose take.
+            Otherwise choose the safest adjacent useful tile.
+            Priority:
+            take > goal > checkpoint > door > timed_pressure_plate > toggleable_hazard_safe > stairs/ladder/ledge/safe_fall > path/spawn.
+            """
+
+    if observation_tier == 1:
+        return """
+            Tier 1 rules:
+            You have immediate surroundings, inventory, position, goal direction, and take_analysis.
+            take_analysis has priority over movement.
+            If take_analysis.available is true, choose take.
+            Use surroundings first.
+            Use goal direction only as a tie-breaker between equally safe and equally useful moves.
+            Do not choose an unsafe tile just because it points toward the goal.
+            Priority:
+            take > goal > checkpoint > door > timed_pressure_plate > toggleable_hazard_safe > stairs/ladder/ledge/safe_fall > path/spawn.
+            """
+
+    if observation_tier == 2:
+        return """
+            Tier 2 rules:
+            You have text_vision as local symbolic map context and take_analysis.
+            take_analysis has priority over text_vision.
+            If take_analysis.available is true, choose take.
+            Use text_vision to avoid obvious dead ends and follow visible paths.
+            Prefer visible objectives over goal direction.
+            Priority:
+            take > goal > checkpoint > door > timed_pressure_plate > toggleable_hazard_safe > stairs/ladder/ledge/safe_fall > unexplored path > spawn/recent path.
+            """
+
+    if observation_tier == 3:
+        return """
+            Tier 3 rules:
+            You have branch_analysis, possible_moves, recent_positions, and take_analysis.
+            take_analysis has priority over branch_analysis.
+            If take_analysis.available is true, choose take.
+            Use branch_analysis as the main route guide.
+            Prefer branch results in this order:
+            take_key_immediately > goal > checkpoint > key > door > pressure_plate/timed_pressure_plate > toggleable_hazard_safe > safe_fall > special_continuation > junction > scan_limit_reached > path/spawn > dead_end > empty/blocked/unsafe.
+
+            Use possible_moves[action].target_recent and branch_recent_count to avoid loops.
+            Do not choose a target_recent move if there is another safe move with target_recent false in the same or higher observation tier.
+            Only use exploration_score and goal.direction as tie-breakers between actions with the same branch result tier.
+            If branch_analysis contains result take_key_immediately, choose take immediately.
+            """
+
+    if observation_tier == 4:
+        return """
+            Tier 4 rules:
+        Tier 4 rules:
+        You have bfs_analysis as the main route guide and take_analysis.
+
+        Absolute priority:
+        1. If take_analysis.available is true, choose take.
+        2. Otherwise, only consider actions where bfs_analysis[action].safe is true.
+        3. Never choose an action where bfs_analysis[action].safe is false.
+
+        BFS result priority order:
+        goal > checkpoint > key > door > pressure_plate/timed_pressure_plate > toggleable_hazard_safe > safe_fall > scan_limit_reached > stairs/ladder/ledge > special_continuation > junction > path/spawn > backtrack > dead_end > empty/blocked/unsafe.
+
+        Decision procedure:
+        Step 1: Find the highest-priority bfs_analysis.result among safe actions.
+        Step 2: Discard every safe action with a lower-priority result.
+        Step 3: If more than one remaining action has the same result, choose the one with the lowest bfs_analysis.steps.
+        Step 4: This step rule is strict. For the same result, lower steps always wins.
+        Step 5: Only compare reachable_tiles if result and steps are exactly tied.
+        Step 6: Only use goal direction if result, steps, and reachable_tiles are all tied.
+
+        Do not choose a higher-step action when another safe action has the same result with fewer steps.
+        Do not justify a higher-step action by saying it reaches the same objective.
+            """
+
+    return ""

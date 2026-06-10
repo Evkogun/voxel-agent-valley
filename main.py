@@ -10,6 +10,7 @@ import Level
 import BranchScan
 from Config import * # Didn't want every constant to be preceded by Config.
 import argparse
+import Planner
 
 # Less actual code changes
 Movement.setup(sys.modules[__name__])
@@ -17,17 +18,16 @@ Level.setup(sys.modules[__name__])
 Sense.setup(sys.modules[__name__])
 Vision.setup(sys.modules[__name__])
 BranchScan.setup(sys.modules[__name__])
+Planner.setup(sys.modules[__name__])
 
 # TODO: 
 # Finalise README
-# clean up log
-# The agent currently automatically does stuff like climb stairs and open doors
-# We could make the harder, so expanding the agents "action space"
-# adding an expanding map could be fun?
 
 checkpoint_tracking_iterator = 0
 checkpoint_start = 0
 keys_start = False
+ai_observation_tier = 4
+ai_mode = False
 
 # Agent state
 agent = {
@@ -57,7 +57,7 @@ def get_launch_options():
     parser.add_argument("--ai", action="store_true", help="Run with OpenAI agent")
     parser.add_argument("--checkpoint", type=int, default=0, help="Starting checkpoint")
     parser.add_argument("--keys", action="store_true", help="Start with keys in inventory")
-
+    parser.add_argument("--tier", type=int, default=4, choices=range(0, 5), help="AI observation tier 0-4")
     args = parser.parse_args()
     checkpoint_start = args.checkpoint
     keys_start = args.keys
@@ -105,12 +105,15 @@ def run_action(action, cubes, cube_map, goal_cube=None):
     else:
         print(f"Unknown action: {action}")
 
-    Sense.print_senses(cube_map)
+    if not ai_mode or ai_observation_tier <= 1:
+        Sense.print_senses(cube_map)
 
     if goal_cube is not None:
         Vision.update_agent_vision(cubes)
         observation = Vision.get_observations(cube_map, goal_cube)
-        print(f"Goal distance: {observation['goal']['distance']}, direction: {observation['goal']['direction']['general_direction']}")
+        goal_direction = observation["goal"]["direction"]
+        # This line was changed to send "east_west" to the ai and x to the console
+        print(f"Goal distance: {observation['goal']['distance']}, x: {goal_direction['x_difference']}, y: {goal_direction['y_difference']}, z: {goal_direction['z_difference']}")
 
     if goal_completed(goal_cube):
         print("Goal reached!")
@@ -128,10 +131,13 @@ def goal_completed(goal_cube):
 
 # Runs the main pygame window
 def main():
-    global last_agent_step, checkpoint_location, agent_vision, checkpoint_start, checkpoint_tracking_iterator
+    global last_agent_step, checkpoint_location, agent_vision, checkpoint_start, checkpoint_tracking_iterator, ai_observation_tier, ai_mode
     agent_vision = Vision.create_empty_agent_vision()
     # Setup and ai flag
     args = get_launch_options()
+    ai_observation_tier = args.tier
+    ai_mode = args.ai
+
     Agent = None
     if args.ai:
         import Agent
@@ -193,7 +199,9 @@ def main():
 
     set_respawn_point(agent["x"], agent["y"], agent["z"])
     print(f"Loaded {len(cubes)} cubes from {VOX_FILE}")
-    Sense.print_senses(cube_map)
+
+    if not ai_mode or ai_observation_tier <= 1:
+        Sense.print_senses(cube_map)
 
     # Game loop
     # Taken from one of my other projects, will likely be refactored as the project develops but it works for now
@@ -211,7 +219,7 @@ def main():
                 pygame.quit()
                 sys.exit(0)
             
-            action = Agent.choose_action(observation, goal, screenshot_path)
+            action = Agent.choose_action(observation, goal, screenshot_path, args.tier)
 
             if action is None:
                 print("Agent did not choose an action. Skipping this step.")
