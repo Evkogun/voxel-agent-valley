@@ -1,6 +1,5 @@
 from level import Render
 
-
 # Stores the voxel colours that are used as object types in a mapping table
 # These were manually pulled from the program, the long term plan is to have this implemented in the Render module to allow customisation of level colour palettes
 COLOUR_TO_TYPE = {
@@ -20,6 +19,24 @@ COLOUR_TO_TYPE = {
     (0, 136, 0): "goal",
 }
 
+# Colour Palette
+TYPE_TO_RENDER_COLOUR = {
+    "spawn": (255, 105, 97),
+    "checkpoint": (120, 220, 140),
+    "path": (250, 240, 218),
+    "stairs": (90, 130, 210),
+    "ladder": (55, 85, 150),
+    "key1": (155, 95, 220),
+    "key2": (105, 75, 190),
+    "door": (145, 95, 50),
+    "ledge": (170, 175, 175),
+    "hazard": (245, 180, 65),
+    "toggleable_hazard": (185, 170, 95),
+    "timed_pressure_plate": (120, 55, 55),
+    "death_tile": (88, 160, 192),
+    "goal": (70, 200, 120),
+    "unknown": (255, 0, 255),
+}
 
 # 4 byte integer vox reader
 def read_int(data, offset):
@@ -30,6 +47,9 @@ def read_int(data, offset):
 # Converts an RGB colour into a tile type
 def get_type_from_colour(colour):
     return COLOUR_TO_TYPE.get(colour, "unknown")
+
+def get_render_colour_from_type(tile_type):
+    return TYPE_TO_RENDER_COLOUR.get(tile_type, Render.CUBE_TOP_COLOUR)
 
 # Reads voxel positions and palette colours from a Vox file
 def read_vox_file(path):
@@ -117,7 +137,9 @@ def read_vox_file(path):
         else:
             voxel["colour"] = Render.CUBE_TOP_COLOUR # Generic fallback cube colour defined in Render
 
-        voxel["type"] = get_type_from_colour(voxel["colour"])
+        voxel["source_colour"] = voxel["colour"]
+        voxel["type"] = get_type_from_colour(voxel["source_colour"])
+        voxel["colour"] = get_render_colour_from_type(voxel["type"])
     return voxels
 
 
@@ -142,6 +164,7 @@ def load_vox_cubes(path, level_size):
             "y": y,
             "z": z,
             "colour": voxel["colour"],
+            "source_colour": voxel["source_colour"], # Only used in level creation so logic isn't impacted
             "colour_index": voxel["colour_index"],
             "type": voxel["type"],
         }

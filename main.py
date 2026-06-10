@@ -274,7 +274,7 @@ def main():
                 if event.key == pygame.K_m:
                     Vision.print_agent_text_vision(state)
 
-        screen.fill(Render.BACKGROUND)
+        Render.draw_background_gradient(screen)
         Level.draw_scene(state, screen)
         pygame.display.flip()
         clock.tick(60)

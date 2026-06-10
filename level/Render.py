@@ -1,11 +1,13 @@
 import pygame
 
+BACKGROUND_TOP = (228, 220, 234)
+BACKGROUND_BOTTOM = (170, 155, 195)
+
 # Generic set colours
-BACKGROUND = (245, 245, 245)
 CUBE_TOP_COLOUR = (120, 180, 255)
 CUBE_LEFT_COLOUR = (90, 140, 210)
 CUBE_RIGHT_COLOUR = (70, 110, 170)
-CUBE_OUTLINE = (40, 70, 110)
+CUBE_OUTLINE = (85, 95, 100)
 TEXT_COLOUR = (20, 20, 20)
 
 TILE_W = 32
@@ -16,7 +18,7 @@ WIDTH = 600
 HEIGHT = 600
 
 MIDDLE_X = WIDTH // 2
-MIDDLE_Y = HEIGHT // 2
+MIDDLE_Y = HEIGHT // 2 - 50
 
 # Height lighting variation, used to distinguish different levels when perspectively next to each other
 LOWEST_LEVEL = 0
@@ -97,19 +99,18 @@ def draw_cube(
     right_colour = None,
     origin_x = MIDDLE_X,
     origin_y = MIDDLE_Y,
+    draw_outline = True,
 ):
-
-    original_top_colour = top_colour # Used to find unique tiles
-
+    
     # Makes low cubes slightly darker and high cubes slightly lighter
     top_colour = apply_height_lighting(top_colour, z)
 
     # If there is no input for the left/right colour just make them darker versions of the top colour
     # Otherwise apply height lighting to them as well
-    if left_colour is None: left_colour = shade_colour(top_colour, 0.92)
+    if left_colour is None: left_colour = shade_colour(top_colour, 0.78)
     else: left_colour = apply_height_lighting(left_colour, z)
 
-    if right_colour is None: right_colour = shade_colour(top_colour, 0.84)
+    if right_colour is None: right_colour = shade_colour(top_colour, 0.66)
     else: right_colour = apply_height_lighting(right_colour, z)
 
     lx, ly = iso_project(x, y, z, origin_x, origin_y) # Screen co-ords
@@ -121,7 +122,7 @@ def draw_cube(
     pygame.draw.polygon(screen, top_colour, top)
 
     # Prevents water/boundary tiles from having outlines to distinguish them from normal cubes and reduce visual strain
-    if original_top_colour == (153, 204, 255): return
+    if not draw_outline: return
 
     # Outlines
     pygame.draw.polygon(screen, CUBE_OUTLINE, left, 1)
@@ -146,5 +147,16 @@ def draw_agent(screen, x, y, z, origin_x=MIDDLE_X, origin_y=MIDDLE_Y):
 
     lx, ly = iso_project(x, y, z, origin_x, origin_y)
 
-    pygame.draw.circle(screen, (255, 0, 0), (lx, ly), 6)
-    pygame.draw.circle(screen, (40, 0, 0), (lx, ly), 6, 2)
+    pygame.draw.circle(screen, (170, 45, 55), (lx, ly), 6)
+    pygame.draw.circle(screen, (235, 75, 80), (lx, ly), 4)
+
+
+def draw_background_gradient(screen):
+    for y in range(HEIGHT):
+        blend = y / HEIGHT
+
+        r = int(BACKGROUND_TOP[0] + (BACKGROUND_BOTTOM[0] - BACKGROUND_TOP[0]) * blend)
+        g = int(BACKGROUND_TOP[1] + (BACKGROUND_BOTTOM[1] - BACKGROUND_TOP[1]) * blend)
+        b = int(BACKGROUND_TOP[2] + (BACKGROUND_BOTTOM[2] - BACKGROUND_TOP[2]) * blend)
+
+        pygame.draw.line(screen, (r, g, b), (0, y), (WIDTH, y))

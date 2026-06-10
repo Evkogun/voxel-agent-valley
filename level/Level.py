@@ -91,6 +91,49 @@ def get_draw_depth(item):
     # This is to prevent cubes visually overlapping in the wrong order when they are at the same x + y but different heights
     return item["x"] + item["y"] + item["z"]
 
+# Checks if an adjacent cube is also a path at the same height
+def adjacent_path_exists(state, cube, direction):
+    dx, dy = DIRECTION_TO_VECTOR[direction]
+    adjacent_cube = state.cube_map.get((cube["x"] + dx, cube["y"] + dy, cube["z"]))
+    return adjacent_cube is not None and adjacent_cube["type"] == "path"
+
+# Draws only the exposed outline edges of path tiles
+def draw_path_exposed_edges(state, screen, cube, origin_x, origin_y):
+
+    lx, ly = Render.iso_project(cube["x"], cube["y"], cube["z"], origin_x, origin_y)
+    top, left, right = Render.cube_faces(lx, ly)
+
+    north_exposed = not adjacent_path_exists(state, cube, "north")
+    east_exposed = not adjacent_path_exists(state, cube, "east")
+    south_exposed = not adjacent_path_exists(state, cube, "south")
+    west_exposed = not adjacent_path_exists(state, cube, "west")
+
+    if north_exposed:
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, top[0], top[1], 1)
+
+    if east_exposed:
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, top[1], top[2], 1)
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, right[2], right[3], 1)
+
+    if south_exposed:
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, top[2], top[3], 1)
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, left[2], left[3], 1)
+
+    if west_exposed:
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, top[3], top[0], 1)
+
+    if east_exposed and not adjacent_path_exists(state, cube, "north"):
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, top[1], right[3], 1)
+
+    if east_exposed and not adjacent_path_exists(state, cube, "south"):
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, top[2], right[2], 1)
+
+    if south_exposed and not adjacent_path_exists(state, cube, "east"):
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, top[2], left[2], 1)
+
+    if south_exposed and not adjacent_path_exists(state, cube, "west"):
+        pygame.draw.line(screen, Render.CUBE_OUTLINE, top[3], left[3], 1)
+        
 # Draws all cubes and the agent in depth order
 # Most of this was moved to the Render module but the draw_scene function is still responsible for sorting everything in the correct order
 def draw_scene(state, screen):
@@ -137,7 +180,11 @@ def draw_scene(state, screen):
                 top_colour=cube["colour"],
                 origin_x=origin_x,
                 origin_y=origin_y,
+                draw_outline=cube["type"] != "death_tile" and cube["type"] != "path",
             )
+
+            if cube["type"] == "path":
+                draw_path_exposed_edges(state, screen, cube, origin_x, origin_y)
 
         elif item["kind"] == "agent":
             if state.agent["alive"]:

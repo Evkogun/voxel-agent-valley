@@ -1,5 +1,6 @@
 from Config import *
 from level import Level
+from level import LevelLoader
 
 # Gets the highest cube at a x y position
 # Used for finding the tile the agent is trying to move to and for top of ladder
@@ -234,11 +235,11 @@ def move_in_direction(state, direction):
             )
 
             if old_checkpoint_cube is not None:
-                old_checkpoint_cube["colour"] = (238, 238, 238)
+                old_checkpoint_cube["colour"] = LevelLoader.get_render_colour_from_type("path") # Palette colour not original
                 old_checkpoint_cube["type"] = "path"
 
             state.set_respawn_point(state.agent["x"], state.agent["y"], state.agent["z"])
-            target_cube["colour"] = (238, 0, 0)
+            target_cube["colour"] = LevelLoader.get_render_colour_from_type("spawn")
             target_cube["type"] = "spawn"
 
             state.checkpoint_tracking_iterator += 1

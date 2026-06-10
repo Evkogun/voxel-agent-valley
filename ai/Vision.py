@@ -1,7 +1,7 @@
 from Config import *
 from ai import Sense
 from ai import BranchScan
-import Planner
+import ai.Planner as Planner
 
 # Created to allow defaulting to empty tiles
 # setup function mentioned once in update_agent_vision
