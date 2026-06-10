@@ -85,7 +85,7 @@ TYPE_TO_SYMBOL = {
 
 AGENT_STEP_TIME = 1000
 AGENT_VISION_RADIUS = 12
-AGENT_Z_VISION = 0
+AGENT_Z_VISION = 1
 AGENT_MAX_Z = 8
 
 # List of checkpoints as well as the goal for tracking
